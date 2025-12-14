@@ -8,6 +8,10 @@ For more information on how to setup individual components visit: https://www.yo
 
 For TickHunter order management tool, join TradeLikeAZombie discord https://discord.gg/eVcPStRR
 
+NOTE: If you add the TickHunterBridge, you will need to patch the latest Tickhunter with the diff included - either use WinMerge or just add the code manually from the patch.
+
+The TickHunter version this was ran against was 1.504 as of time of this writting.
+
 For Alighten's order management panel, join TO Legacy Group discord https://discord.gg/3ZEaf6Sf
 
 If you want to contribute to the code, suggestions or any requests against the code, contact me on Discord to discuss further
