@@ -8,7 +8,11 @@ DDATM - sample order management strategy you can use to process your orders with
 
 For more information on how to setup individual components visit: https://www.youtube.com/@DimDium
 
-For TickHunter order management tool, join TradeLikeAZombie discord https://discord.gg/eVcPStRR
+For DDATM, you will need to load the DDATM strategy and enable - ATM button the Plot Reader is used for that mode.
+
+For Alighten's Trade panel, you will need to load the ABPBridge indicator on the same chart as the panel. - ABP button on the Plot Reader is used for that mode.
+
+For TickHunter order management tool, join TradeLikeAZombie discord https://discord.gg/eVcPStRR - TH button on the Plot Reader is used for that mode.
 
 NOTE: If you add the TickHunterBridge, you will need to patch the latest Tickhunter with the diff included - either use WinMerge or just add the code manually from the patch.
 
