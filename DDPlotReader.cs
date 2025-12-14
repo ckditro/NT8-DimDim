@@ -37,7 +37,7 @@ using System.IO;        // File-based settings persistence
 
 namespace NinjaTrader.NinjaScript.Indicators.DimDim	
 {
-	// --- Minimal, safe reflection helper (no vendor internals) ---
+	// --- Minimal, safe reflection helper (no external internals) ---
 	static class ReflectSafe
 	{
 	    // Prefer IndicatorBase types
@@ -45,7 +45,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 	        => t != null && typeof(IndicatorBase).IsAssignableFrom(t);
 	
 	    // Try to resolve a type by namespace + short name, optionally loading a dll
-	    // Never invokes vendor methods; only Assembly.LoadFrom and Type.GetType
+	    // Never invokes external methods; only Assembly.LoadFrom and Type.GetType
 	    public static Type ResolveIndicatorType(string ns, string name, string dllPath = null)
 	    {
 	        if (string.IsNullOrEmpty(ns) || string.IsNullOrEmpty(name))
@@ -1288,7 +1288,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		        int barsAgo = (n - 1) - absIndex;
 		        if (barsAgo < 0) return false;
 		
-		        double v = s[barsAgo]; // indexer path used by some vendors
+		        double v = s[barsAgo]; // indexer path exposed by some sources
 		        if (double.IsNaN(v) || double.IsInfinity(v)) return false;
 		        val = v;
 		        return true;
@@ -1425,7 +1425,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		private static bool CrossesBelow(double prev, double curr, double thr)
 		    => prev >= thr && curr < thr;
 		
-		// Historical scan on one plot series (no vendor internals, no instantiation)
+		// Historical scan on one plot series (no external internals, no instantiation)
 		private static void FindMatches(
 		    IndicatorBase indi,
 		    int plotIndex,
@@ -1717,7 +1717,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			    }
 			}
 			
-			 // (C) Fallback: vendor exposes no usable time; use latest slot but be strict
+			 // (C) Fallback: source exposes no usable time; use latest slot but be strict
 			 if (liveIdx >= 0 && (SafeTryGet(s, liveIdx, out double vLive) || TryDirectSeriesFallback(s, liveIdx, out vLive)))
 			 {
 			     bool finite   = !(double.IsNaN(vLive) || double.IsInfinity(vLive));
@@ -2045,7 +2045,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		{
 		    if (holder is IndicatorBase ib) return ib;
 		
-		    // quick property/field probes (no vendor internals)
+		    // quick property/field probes (no external internals)
 		    string[] tryNames = { "Indicator", "Core", "Source", "Owner", "StrategyIndicator", "NinjaScript", "InnerIndicator" };
 		    var t = holder?.GetType();
 		    if (t == null) return null;
@@ -3157,7 +3157,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
     			lastTriggerBar = -1;
 
 		
-		    // --- Predator-style bar-closed reconfirmation (BIP0 only) -----------------
+		    // --- Bar-closed reconfirmation (BIP0 only) -----------------
 		    // On first tick of a NEW bar on the primary series, re-read the PREVIOUS bar
 		    // from the selected source by time alignment and, if valid, correct our cache.
 		    if (BarsInProgress == 0 && IsFirstTickOfBar && selectedIndex >= 0 && selectedIndex < options.Count)
@@ -3236,7 +3236,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		    }
 		    else dbgNote = "invalid selectedIndex";
 		
-		    // --- HelloWin-style reliability filters -----------------------------------
+		    // --- Reliability filters -----------------------------------
 		    double candidate = raw;
 		
 		    // A) Ghost-zero debounce (frame-based)
@@ -3459,7 +3459,7 @@ namespace NinjaTrader.NinjaScript.Indicators
 					if (cacheDDPlotReader[idx] != null && cacheDDPlotReader[idx].DebugMode == debugMode && cacheDDPlotReader[idx].SendToTickHunter == sendToTickHunter && cacheDDPlotReader[idx].BridgeEndpoint == bridgeEndpoint && cacheDDPlotReader[idx].FireOncePerBar == fireOncePerBar && cacheDDPlotReader[idx].MinBarsBetweenTriggers == minBarsBetweenTriggers && cacheDDPlotReader[idx].ElectrifierWhenInTrade == electrifierWhenInTrade && cacheDDPlotReader[idx].ElectrifierUpdateMs == electrifierUpdateMs && cacheDDPlotReader[idx].PendingOrderTimeoutBars == pendingOrderTimeoutBars && cacheDDPlotReader[idx].SendToDDATM == sendToDDATM && cacheDDPlotReader[idx].DDATMEndpoint == dDATMEndpoint && cacheDDPlotReader[idx].UseDDATMFlatCheck == useDDATMFlatCheck && cacheDDPlotReader[idx].SendToDDTP == sendToDDTP && cacheDDPlotReader[idx].DDTPEndpoint == dDTPEndpoint && cacheDDPlotReader[idx].TLX == tLX && cacheDDPlotReader[idx].TLY == tLY && cacheDDPlotReader[idx].WidthPx == widthPx && cacheDDPlotReader[idx].RedrawModeStr == redrawModeStr && cacheDDPlotReader[idx].SendEnabledDefault == sendEnabledDefault && cacheDDPlotReader[idx].EqualsInput(input))
 						return cacheDDPlotReader[idx];
 			return CacheIndicator<DimDim.DDPlotReader>(new DimDim.DDPlotReader(){ DebugMode = debugMode, SendToTickHunter = sendToTickHunter, BridgeEndpoint = bridgeEndpoint, FireOncePerBar = fireOncePerBar, MinBarsBetweenTriggers = minBarsBetweenTriggers, ElectrifierWhenInTrade = electrifierWhenInTrade, ElectrifierUpdateMs = electrifierUpdateMs, PendingOrderTimeoutBars = pendingOrderTimeoutBars, SendToDDATM = sendToDDATM, DDATMEndpoint = dDATMEndpoint, UseDDATMFlatCheck = useDDATMFlatCheck, SendToDDTP = sendToDDTP, DDTPEndpoint = dDTPEndpoint, TLX = tLX, TLY = tLY, WidthPx = widthPx, RedrawModeStr = redrawModeStr, SendEnabledDefault = sendEnabledDefault }, input, ref cacheDDPlotReader);
-			}
+		}
 	}
 }
 
