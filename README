@@ -1,5 +1,7 @@
 Repo for NinjaTrader8 indicators and systems
 
+Requires NT8.1 major release.
+
 DDPlotReader - read any indicator on chart and send to trade managers such as TickHunter, Alighten's TradePanel or DDATM
 DDObjectBreak - converts objects on chart to plot signals
 DDATM - sample order management strategy you can use to process your orders with statistics. (WIP)
