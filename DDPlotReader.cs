@@ -333,7 +333,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		private float valBoxPad = 6f;
 		private float valBoxGap = 8f;     // gap between dropdown and value box
 		private TextFormat valTf;         // small font for value box
-		private RedrawMode redrawMode = RedrawMode.Throttled;
+		private RedrawMode redrawMode = RedrawMode.Minimal;
 		// Redraw throttling to limit chart invalidations (helps during replay)
 		private readonly TimeSpan redrawThrottle = TimeSpan.FromMilliseconds(250);
 		private DateTime nextRedrawTime = DateTime.MinValue;
@@ -361,7 +361,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
         public int WidthPx { get; set; } = 280;
 
         [NinjaScriptProperty, Display(Name="Redraw Mode", Description="Controls how often the UI refreshes: Full=immediate, Throttled=limited updates, Minimal=only essential updates, Disabled=no visual updates", GroupName="Performance", Order=3)]
-        public string RedrawModeStr { get; set; } = "Disabled";
+        public string RedrawModeStr { get; set; } = "Minimal";
 
 		// --- Send toggle (left of dropdown)
 		private bool sendEnabled;                           // runtime gate
@@ -572,13 +572,13 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 
 		private RedrawMode ParseRedrawMode(string val)
 		{
-		    if (string.IsNullOrWhiteSpace(val)) return RedrawMode.Throttled;
+		    if (string.IsNullOrWhiteSpace(val)) return RedrawMode.Minimal;
 		    var v = val.Trim();
 		    if (v.Equals("Full", StringComparison.OrdinalIgnoreCase)) return RedrawMode.Full;
 		    if (v.Equals("Throttled", StringComparison.OrdinalIgnoreCase)) return RedrawMode.Throttled;
 		    if (v.Equals("Minimal", StringComparison.OrdinalIgnoreCase)) return RedrawMode.Minimal;
 		    if (v.Equals("Disabled", StringComparison.OrdinalIgnoreCase)) return RedrawMode.Disabled;
-		    return RedrawMode.Throttled;
+		    return RedrawMode.Minimal;
 		}
 
 		
@@ -3511,4 +3511,3 @@ namespace NinjaTrader.NinjaScript.Strategies
 }
 
 #endregion
-
