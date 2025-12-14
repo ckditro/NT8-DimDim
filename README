@@ -13,7 +13,7 @@ What it is: A custom button panel that plugs into Chart Trader. It adds buttons 
 How to use: Add AlightenButtonPanelV0001 as an indicator to your chart. Make sure Chart Trader is open, and the panel will appear with its custom buttons. Use the “Bridge Endpoint” property if you want other indicators (like DDPlotReader) to talk to it.
 DDATM.cs
 What it is: A strategy/indicator that routes signals to your ATM strategy logic (DimDim ATM).
-How to use: Apply DDATM to a chart or let DDPlotReader send signals to it by selecting the DDATM destination. Configure the “Endpoint” so DDPlotReader knows which DDATM instance to talk to.
+How to use: Apply DDATM strategy to a chart and let DDPlotReader send signals to it by selecting the DDATM destination. Configure the “Endpoint” so DDPlotReader knows which DDATM instance to talk to.
 DDObjectBreak.cs
 What it is: A breakout detector. It watches drawing objects (rectangles, lines) on your chart and emits a signal when price crosses them.
 How to use: Add the indicator to a chart. Pick the drawing tag you want it to monitor. When price crosses that object, it outputs a +1/-1 signal (shown in the panel and available to other indicators like DDPlotReader).
@@ -26,7 +26,7 @@ Choose the destination (TickHunter, DDATM, or ABP)
 When a signal occurs, DDPlotReader sends the appropriate command to the chosen trade panel.
 TickHunterBridge.cs
 What it is: A bridge between DDPlotReader and the TickHunter trade panel. It exposes a “bridge endpoint” so external indicators can trigger TickHunter buttons programmatically.
-How to use: Apply TickHunterBridge to the same chart as TickHunter. Set its endpoint name (e.g., “th-default”). In DDPlotReader, set the endpoint to match. When DDPlotReader sends a signal to TickHunter, the bridge converts it into the appropriate TickHunter command (BuyPop, SellDrop, etc.).
+How to use: Apply TickHunterBridge to the same chart as TickHunter. Set its endpoint name (e.g., “default”). In DDPlotReader, set the endpoint to match. When DDPlotReader sends a signal to TickHunter, the bridge converts it into the appropriate TickHunter command (BuyPop, SellDrop, etc.).
 Getting started flow for novice users:
 Draw your breakout zones on the chart.
 Add DDObjectBreak to detect the breakout.
