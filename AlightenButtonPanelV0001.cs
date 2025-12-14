@@ -69,6 +69,9 @@ namespace NinjaTrader.NinjaScript.Indicators
 		private int    lastBracketQty;
 		
 		private volatile bool isFlatteningAll = false;
+		
+		// Bridge registration state (retry until successful, like TickHunterBridge)
+		private bool bridgeRegistered = false;
 
 	
 	    [NinjaScriptProperty]
@@ -1027,31 +1030,30 @@ namespace NinjaTrader.NinjaScript.Indicators
 		
 		private void RegisterWithBridge()
 		{
+			if (bridgeRegistered) return; // Already registered
+			
 			try
 			{
 				var bridgeType = FindBridgeType();
 				if (bridgeType == null)
 				{
-					Print($"[ABP] WARNING: ABPBridge type not found - bridge registration skipped");
-					Print($"[ABP] Loaded assemblies: {string.Join(", ", AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetName().Name).Take(10))}...");
+					// Don't spam warnings - will retry in OnBarUpdate
 					return;
 				}
 				
 				var registerMi = bridgeType.GetMethod("Register", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
 				if (registerMi == null)
 				{
-					Print($"[ABP] WARNING: ABPBridge.Register method not found");
 					return;
 				}
 				
 				registerMi.Invoke(null, new object[] { BridgeEndpoint, this });
+				bridgeRegistered = true;
 				Print($"[ABP] Successfully registered bridge endpoint: {BridgeEndpoint}");
 			}
 			catch (Exception ex)
 			{
 				Print($"[ABP] Bridge registration failed: {ex.Message}");
-				if (ex.InnerException != null)
-					Print($"[ABP] Inner exception: {ex.InnerException.Message}");
 			}
 		}
 		
@@ -1066,6 +1068,10 @@ namespace NinjaTrader.NinjaScript.Indicators
 				unregisterMi?.Invoke(null, new object[] { BridgeEndpoint });
 			}
 			catch { }
+			finally
+			{
+				bridgeRegistered = false;
+			}
 		}
 
 		private void CreateWPFControls()
@@ -2224,6 +2230,10 @@ namespace NinjaTrader.NinjaScript.Indicators
 		protected override void OnBarUpdate()
 		{
 			lastClose = Close[0];
+			
+			// Retry bridge registration until successful (like TickHunterBridge pattern)
+			if (AutoRegisterBridge && !bridgeRegistered && !string.IsNullOrWhiteSpace(BridgeEndpoint))
+				RegisterWithBridge();
 		}
 	}
 }

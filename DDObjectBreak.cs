@@ -503,11 +503,21 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 
                     int currSide = SideFor(currPrice, level, offset);
                     int prevSide;
-                    if (!lastSideByTag.TryGetValue(tag, out prevSide) || objectMoved)
+                    
+                    // Reset side tracking if price is very far from level (prevents stale cross detection)
+                    // Only track sides when within reasonable range (e.g., 5x the max detection distance)
+                    bool priceIsFar = distance > (maxDist * 5);
+                    
+                    if (!lastSideByTag.TryGetValue(tag, out prevSide) || objectMoved || priceIsFar)
                     {
                         prevSide = currSide;
+                        if (priceIsFar)
+                            lastSideByTag.Remove(tag);  // Don't track when far away
                     }
-                    lastSideByTag[tag] = currSide; // keep tracking for all matches
+                    
+                    // Only update tracking if within reasonable range
+                    if (!priceIsFar)
+                        lastSideByTag[tag] = currSide;
 
                     bool barTouchesLevel = (High[0] >= level && Low[0] <= level);
                     string candleStr = dirFilter == DirFilter.Candle

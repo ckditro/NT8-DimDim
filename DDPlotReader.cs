@@ -614,6 +614,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		// Cached bridge type for performance
 		private Type _abpBridgeType;
 		private Type _abpCmdType;
+		private bool _abpBridgeTypeJustFound = false; // Flag to trigger redraw when first found
 		
 		private Type FindABPBridgeType()
 		{
@@ -624,17 +625,24 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			                 ?? Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge, NinjaTrader.Core", false)
 			                 ?? Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge", false);
 			
-			if (_abpBridgeType != null) return _abpBridgeType;
+			if (_abpBridgeType != null)
+			{
+				Print($"[DDPR.ABP] Found ABPBridge type via Type.GetType");
+				_abpBridgeTypeJustFound = true;
+				return _abpBridgeType;
+			}
 			
 			// Search all loaded assemblies
 			foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
 			{
 				try
 				{
-					_abpBridgeType = asm.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge", false);
-					if (_abpBridgeType != null)
+					var t = asm.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge", false);
+					if (t != null)
 					{
-						if (DebugMode) Dbg($"[ABP] Found ABPBridge in assembly: {asm.GetName().Name}");
+						_abpBridgeType = t;
+						Print($"[DDPR.ABP] Found ABPBridge in assembly: {asm.GetName().Name}");
+						_abpBridgeTypeJustFound = true;
 						return _abpBridgeType;
 					}
 				}
@@ -668,6 +676,9 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			return null;
 		}
 		
+		// Track if endpoint was just found to trigger redraw
+		private bool _abpEndpointWasReady = false;
+		
 		// Uses reflection so DDPlotReader does NOT require compiling against ABPBridge directly
 		private bool ABPEndpointExists()
 		{
@@ -676,14 +687,33 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		        var bridgeType = FindABPBridgeType();
 		        if (bridgeType == null)
 		        {
-		            if (DebugMode) Dbg("[ABP] ABPBridge type not found");
 		            return false;
 		        }
 		        var existsMi = bridgeType.GetMethod("Exists", BindingFlags.Public | BindingFlags.Static);
-		        if (existsMi == null) return false;
-		        return (bool)existsMi.Invoke(null, new object[] { ABPEndpoint });
+		        if (existsMi == null)
+		        {
+		            return false;
+		        }
+		        bool exists = (bool)existsMi.Invoke(null, new object[] { ABPEndpoint });
+		        
+		        // Trigger redraw when endpoint becomes available
+		        if (exists && !_abpEndpointWasReady)
+		        {
+		            _abpEndpointWasReady = true;
+		            Print($"[DDPR.ABP] Endpoint '{ABPEndpoint}' now READY - requesting redraw");
+		            try { RequestRedraw(); } catch { }
+		        }
+		        else if (!exists)
+		        {
+		            _abpEndpointWasReady = false;
+		        }
+		        
+		        return exists;
 		    }
-		    catch { return false; }
+		    catch (Exception ex)
+		    {
+		        return false;
+		    }
 		}
 		
 
@@ -3204,6 +3234,19 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			
 			if (isPrimary && Times != null && Times[0] != null && CurrentBar >= 0)
 			    currBarTime = Times[0][0];
+			
+			// Check if ABP bridge type was just found - trigger redraw to update button colors
+			if (SendToABP && _abpBridgeType == null)
+			{
+				// Keep trying to find the type on each bar
+				FindABPBridgeType();
+			}
+			if (_abpBridgeTypeJustFound)
+			{
+				_abpBridgeTypeJustFound = false;
+				Print("[DDPR.ABP] Bridge type just found - requesting redraw");
+				RequestRedraw();
+			}
 		
 		// === Redraw booster: Force faster redraws when in trade ===
 		// This increases signal reading accuracy by updating the chart more frequently
