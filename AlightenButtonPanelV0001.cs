@@ -50,6 +50,10 @@ namespace NinjaTrader.NinjaScript.Indicators
 		BuyMarket,
 		SellMarket,
 		
+		// Entry commands (limit order with auto-bracket on fill)
+		BuyLimit,
+		SellLimit,
+		
 		// Management
 		Cancel,
 		FlattenAll,
@@ -363,6 +367,12 @@ namespace NinjaTrader.NinjaScript.Indicators
 					case ABPCommand.SellMarket:
 						ApiSellMarket();
 						break;
+					case ABPCommand.BuyLimit:
+						ApiBuyLimit(arg);
+						break;
+					case ABPCommand.SellLimit:
+						ApiSellLimit(arg);
+						break;
 					case ABPCommand.Cancel:
 						ApiCancelAll();
 						break;
@@ -555,6 +565,155 @@ namespace NinjaTrader.NinjaScript.Indicators
 				System.Threading.Thread.Sleep(100);
 				BracketOrder(BracketStopTicks, BracketProfitTicks);
 			}));
+		}
+		
+		/// <summary>
+		/// Place a Buy Limit order at a specified price (or current bid if not provided).
+		/// After fill, auto-bracket is applied.
+		/// </summary>
+		private void ApiBuyLimit(string priceArg)
+		{
+			var acct = GetSelectedAccountInternal();
+			var instr = GetSelectedInstrumentInternal();
+			if (acct == null || instr == null)
+			{
+				Print("[ABP.API] BuyLimit: no account or instrument");
+				return;
+			}
+			
+			int qty = 1;
+			try
+			{
+				var qtySelector = Window.GetWindow(ChartControl.Parent)
+					.FindFirst("ChartTraderControlQuantitySelector") as NinjaTrader.Gui.Tools.QuantityUpDown;
+				if (qtySelector != null) qty = qtySelector.Value;
+			}
+			catch { }
+			
+			// Parse price from arg, fallback to current Close
+			double limitPrice = lastClose;
+			if (!string.IsNullOrWhiteSpace(priceArg))
+			{
+				if (double.TryParse(priceArg, out double parsed) && parsed > 0)
+					limitPrice = instr.MasterInstrument.RoundToTickSize(parsed);
+			}
+			
+			// Create and submit the limit order
+			var order = acct.CreateOrder(
+				instr,
+				OrderAction.Buy,
+				OrderType.Limit,
+				OrderEntry.Automated,
+				TimeInForce.Gtc,
+				qty,
+				limitPrice,
+				0,
+				"",
+				Name + "_ApiBuyLimit",
+				Core.Globals.MaxDate,
+				null
+			);
+			acct.Submit(new[] { order });
+			Print($"[ABP.API] BuyLimit submitted qty={qty} price={limitPrice}");
+			
+			// Monitor for fill and add bracket
+			MonitorFillAndBracket(order);
+		}
+		
+		/// <summary>
+		/// Place a Sell Limit order at a specified price (or current ask if not provided).
+		/// After fill, auto-bracket is applied.
+		/// </summary>
+		private void ApiSellLimit(string priceArg)
+		{
+			var acct = GetSelectedAccountInternal();
+			var instr = GetSelectedInstrumentInternal();
+			if (acct == null || instr == null)
+			{
+				Print("[ABP.API] SellLimit: no account or instrument");
+				return;
+			}
+			
+			int qty = 1;
+			try
+			{
+				var qtySelector = Window.GetWindow(ChartControl.Parent)
+					.FindFirst("ChartTraderControlQuantitySelector") as NinjaTrader.Gui.Tools.QuantityUpDown;
+				if (qtySelector != null) qty = qtySelector.Value;
+			}
+			catch { }
+			
+			// Parse price from arg, fallback to current Close
+			double limitPrice = lastClose;
+			if (!string.IsNullOrWhiteSpace(priceArg))
+			{
+				if (double.TryParse(priceArg, out double parsed) && parsed > 0)
+					limitPrice = instr.MasterInstrument.RoundToTickSize(parsed);
+			}
+			
+			// Create and submit the limit order
+			var order = acct.CreateOrder(
+				instr,
+				OrderAction.SellShort,
+				OrderType.Limit,
+				OrderEntry.Automated,
+				TimeInForce.Gtc,
+				qty,
+				limitPrice,
+				0,
+				"",
+				Name + "_ApiSellLimit",
+				Core.Globals.MaxDate,
+				null
+			);
+			acct.Submit(new[] { order });
+			Print($"[ABP.API] SellLimit submitted qty={qty} price={limitPrice}");
+			
+			// Monitor for fill and add bracket
+			MonitorFillAndBracket(order);
+		}
+		
+		/// <summary>
+		/// Monitor an order for fill, then add bracket (stop + target).
+		/// Uses async Task to poll order state without blocking UI.
+		/// </summary>
+		private void MonitorFillAndBracket(NinjaTrader.Cbi.Order entryOrder)
+		{
+			if (entryOrder == null) return;
+			
+			System.Threading.Tasks.Task.Run(async () =>
+			{
+				int maxWaitMs = 30000; // 30 seconds max wait
+				int pollMs = 50;
+				int waited = 0;
+				
+				while (waited < maxWaitMs)
+				{
+					var state = entryOrder.OrderState;
+					
+					if (state == OrderState.Filled || state == OrderState.PartFilled)
+					{
+						// Order filled - add bracket on UI thread
+						ChartControl?.Dispatcher.BeginInvoke(new Action(() =>
+						{
+							Print($"[ABP.API] Entry filled at {entryOrder.AverageFillPrice} - adding bracket");
+							BracketOrder(BracketStopTicks, BracketProfitTicks);
+						}));
+						return;
+					}
+					
+					if (state == OrderState.Cancelled || state == OrderState.Rejected)
+					{
+						Print($"[ABP.API] Entry order {state} - no bracket added");
+						return;
+					}
+					
+					await System.Threading.Tasks.Task.Delay(pollMs);
+					waited += pollMs;
+				}
+				
+				Print("[ABP.API] Entry order timeout - bracket not added");
+			});
 		}
 		
 		private void ApiCancelAll()

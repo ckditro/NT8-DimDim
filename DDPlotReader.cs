@@ -616,7 +616,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		}
 		
 
-		// Entry: map +1/-1 to BuyMarket / SellMarket (ABP API)
+		// Entry: map +1/-1 to BuyLimit / SellLimit (ABP API with price argument)
 		private bool TrySendABPEntry(int sign, string reason = "DDPlotReader")
 		{
 		    try
@@ -630,9 +630,24 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		            return false;
 		        }
 		
-		        var cmd = sign > 0 ? ABPCommand.BuyMarket : ABPCommand.SellMarket;
-		        bool ok = ABPBridge.SendAck(ABPEndpoint, cmd, reason, null);
-		        if (DebugMode) Dbg($"[DDPR] ABP {(sign > 0 ? "BuyMarket" : "SellMarket")} sent={ok} ep='{ABPEndpoint}'");
+		        // Use limit orders with current price as the entry price
+		        // The ABP will place limit at this price, then add bracket on fill
+		        var cmd = sign > 0 ? ABPCommand.BuyLimit : ABPCommand.SellLimit;
+		        
+		        // Pass the current price as argument for the limit order
+		        string priceArg = null;
+		        try
+		        {
+		            if (Closes != null && Closes[0] != null && CurrentBar >= 0)
+		            {
+		                double entryPrice = Closes[0][0];
+		                priceArg = entryPrice.ToString(System.Globalization.CultureInfo.InvariantCulture);
+		            }
+		        }
+		        catch { }
+		        
+		        bool ok = ABPBridge.SendAck(ABPEndpoint, cmd, reason, priceArg);
+		        if (DebugMode) Dbg($"[DDPR] ABP {(sign > 0 ? "BuyLimit" : "SellLimit")} sent={ok} ep='{ABPEndpoint}' price={priceArg ?? "default"}");
 		        return ok;
 		    }
 		    catch (Exception ex)
@@ -2385,10 +2400,10 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			//     return;
 			// }
 			
-			// ORDER MODE toggle click (cycle POP → DROP → MKT)
+			// ORDER MODE toggle click (cycle POP → DROP → MKT) - only for TickHunter
 			if (orderModeRect.Contains(new SharpDX.Vector2((float)pos.X, (float)pos.Y)))
 			{
-			    if (destMode != DestMode.DDATM)    // disabled when ATM is selected
+			    if (destMode == DestMode.TickHunter)    // only switchable for TickHunter
 			    {
 			        EntryMode = EntryMode == THEntryStyle.Pop ? THEntryStyle.Drop
 			                 : EntryMode == THEntryStyle.Drop ? THEntryStyle.Market
@@ -2525,7 +2540,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			bool newHoverDest = destModeRect.Contains(new SharpDX.Vector2((float)pos.X, (float)pos.Y));
 			if (newHoverDest != hoverDest) { hoverDest = newHoverDest; RequestRedraw(); }
 			
-			bool orderActive = (destMode != DestMode.DDATM);
+			bool orderActive = (destMode == DestMode.TickHunter); // only active for TickHunter
 			bool newHoverOrder = orderActive && orderModeRect.Contains(new SharpDX.Vector2((float)pos.X, (float)pos.Y));
 			if (newHoverOrder != hoverOrder) { hoverOrder = newHoverOrder; RequestRedraw(); }
 
@@ -2635,20 +2650,26 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			Color4 bgPop      = new Color4(0.05f, 0.35f, 0.55f, 0.95f);
 			Color4 bgDrop     = new Color4(0.55f, 0.15f, 0.55f, 0.95f);
 			Color4 bgMarket   = new Color4(0.50f, 0.40f, 0.10f, 0.95f);
+			Color4 bgLimit    = new Color4(0.35f, 0.30f, 0.10f, 0.95f); // amber for LMT (ABP)
 			Color4 bgDisabled = new Color4(0.20f, 0.20f, 0.22f, 0.75f);
 			
-			// If you have destMode from the TH/ATM toggle:
-			bool disableOrderMode = (destMode != DestMode.TickHunter); // grey out in ATM or TP
-			// If you don't have destMode, a safe alternative is:
-			// bool disableOrderMode = SendToDDATM && !SendToTickHunter;
+			// Order mode only switchable for TickHunter; fixed "LMT" for ABP, disabled for DDATM
+			bool disableOrderMode = (destMode != DestMode.TickHunter);
 			
 			bool thReady = SendToTickHunter && BridgeEndpointExists();
 			
 			var bg = bgDisabled;
 			string label = "—";
 			
-			if (!disableOrderMode)
+			if (destMode == DestMode.ABP)
 			{
+			    // ABP uses limit orders - show "LMT" (not switchable)
+			    label = "LMT";
+			    bg = ABPEndpointExists() ? bgLimit : bgDisabled;
+			}
+			else if (destMode == DestMode.TickHunter)
+			{
+			    // TickHunter - switchable POP/DROP/MKT
 			    switch (EntryMode)
 			    {
 			        case THEntryStyle.Pop:    bg = thReady ? bgPop    : bgDisabled; label = "POP";  break;
@@ -2658,14 +2679,9 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			}
 			else
 			{
-			    // Greyed out when DDATM is selected
-			    switch (EntryMode)
-			    {
-			        case THEntryStyle.Pop:    label = "POP";  break;
-			        case THEntryStyle.Drop:   label = "DROP"; break;
-			        case THEntryStyle.Market: label = "MKT";  break;
-			    }
-			    bg = bgDisabled;
+			    // DDATM uses market orders - show "MKT" (not switchable)
+			    label = "MKT";
+			    bg = DDATMEndpointExists() ? bgMarket : bgDisabled;
 			}
 			
 			using (var geo = new RoundedRectangleGeometry(rt.Factory, new RoundedRectangle { Rect = orderModeRect, RadiusX = 4f, RadiusY = 4f }))
