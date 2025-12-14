@@ -48,124 +48,6 @@ using System.Windows.Automation.Provider;
 //This namespace holds Indicators in this folder and is required. Do not change it. 
 namespace NinjaTrader.NinjaScript.Indicators
 {
-	// === Command surface for API access ===
-	public enum ABPCommand
-	{
-		// Entry commands (market order with bracket)
-		BuyMarket,
-		SellMarket,
-		
-		// Entry commands (limit order with auto-bracket on fill)
-		BuyLimit,
-		SellLimit,
-		
-		// Management
-		Cancel,
-		FlattenAll,
-		Breakeven1,
-		Breakeven2,
-		Half,
-		Double,
-		Bracket,
-		AddStop,
-		Naked,
-		Split,
-		PricePlus,
-		EntryPlus
-	}
-	
-	// === Static bridge for cross-indicator communication ===
-	public static class ABPBridge
-	{
-		private static readonly Dictionary<string, AlightenButtonPanelV0001> _endpoints 
-			= new Dictionary<string, AlightenButtonPanelV0001>(StringComparer.OrdinalIgnoreCase);
-		private static readonly object _lock = new object();
-		
-		public static void Register(string endpoint, AlightenButtonPanelV0001 panel)
-		{
-			if (string.IsNullOrWhiteSpace(endpoint) || panel == null) return;
-			lock (_lock)
-			{
-				_endpoints[endpoint] = panel;
-			}
-			// Log via panel's Print method
-			try { panel.Print($"[ABPBridge] REGISTERED endpoint '{endpoint}'"); } catch { }
-		}
-		
-		public static void Unregister(string endpoint)
-		{
-			if (string.IsNullOrWhiteSpace(endpoint)) return;
-			lock (_lock)
-			{
-				_endpoints.Remove(endpoint);
-			}
-		}
-		
-		public static bool Exists(string endpoint)
-		{
-			if (string.IsNullOrWhiteSpace(endpoint)) return false;
-			lock (_lock)
-			{
-				return _endpoints.ContainsKey(endpoint) && _endpoints[endpoint] != null;
-			}
-		}
-		
-		public static bool SendAck(string endpoint, ABPCommand cmd, string reason = null, string arg = null)
-		{
-			AlightenButtonPanelV0001 panel = null;
-			lock (_lock)
-			{
-				if (!_endpoints.TryGetValue(endpoint, out panel) || panel == null)
-					return false;
-			}
-			try
-			{
-				panel.Print($"[ABPBridge] SendAck: {cmd} to '{endpoint}' arg={arg ?? "null"}");
-				panel.ApiExecute(cmd, reason, arg);
-				return true;
-			}
-			catch (Exception ex)
-			{
-				try { panel.Print($"[ABPBridge] SendAck exception: {ex.Message}"); } catch { }
-				return false;
-			}
-		}
-		
-		public static bool TryQueryIsFlat(string endpoint, out bool isFlat)
-		{
-			isFlat = true;
-			AlightenButtonPanelV0001 panel = null;
-			lock (_lock)
-			{
-				if (!_endpoints.TryGetValue(endpoint, out panel) || panel == null)
-					return false;
-			}
-			try
-			{
-				isFlat = panel.ApiIsFlat();
-				return true;
-			}
-			catch { return false; }
-		}
-		
-		public static bool TryQueryHasWorking(string endpoint, out bool hasWorking)
-		{
-			hasWorking = false;
-			AlightenButtonPanelV0001 panel = null;
-			lock (_lock)
-			{
-				if (!_endpoints.TryGetValue(endpoint, out panel) || panel == null)
-					return false;
-			}
-			try
-			{
-				hasWorking = panel.ApiHasWorkingOrders();
-				return true;
-			}
-			catch { return false; }
-		}
-	}
-	
 	public class AlightenButtonPanelV0001 : Indicator
 	{
 		
@@ -369,7 +251,7 @@ namespace NinjaTrader.NinjaScript.Indicators
 		{
 			try
 			{
-				Print($"[ABP.API] {cmd} reason={reason ?? "none"}");
+				Print($"[ABP.API] >>> ApiExecute ENTER: cmd={cmd}, cmdInt={(int)cmd}, reason={reason ?? "none"}, arg={arg ?? "null"}");
 				
 				switch (cmd)
 				{
@@ -421,11 +303,16 @@ namespace NinjaTrader.NinjaScript.Indicators
 					case ABPCommand.EntryPlus:
 						TargetToEntryPlus(EntryPlusTicks);
 						break;
+					default:
+						Print($"[ABP.API] WARNING: Unhandled command {cmd} (int={(int)cmd})");
+						break;
 				}
+				Print($"[ABP.API] >>> ApiExecute completed for cmd={cmd}");
 			}
 			catch (Exception ex)
 			{
-				Print($"[ABP.API] Error {cmd}: {ex.Message}");
+				Print($"[ABP.API] EXCEPTION in ApiExecute: {ex.Message}");
+				Print($"[ABP.API] Stack: {ex.StackTrace}");
 			}
 		}
 		
@@ -468,28 +355,103 @@ namespace NinjaTrader.NinjaScript.Indicators
 		
 		private Account GetSelectedAccountInternal()
 		{
-			if (ChartControl == null) return null;
+			if (ChartControl == null)
+			{
+				Print("[ABP.API] GetSelectedAccountInternal: ChartControl is null");
+				return null;
+			}
 			try
 			{
-				var sel = Window.GetWindow(ChartControl.Parent)
-					.FindFirst("ChartTraderControlAccountSelector") as NinjaTrader.Gui.Tools.AccountSelector;
-				if (sel?.SelectedAccount == null) return null;
+				var window = Window.GetWindow(ChartControl.Parent);
+				if (window == null)
+				{
+					Print("[ABP.API] GetSelectedAccountInternal: Window is null");
+					return null;
+				}
+				
+				var sel = window.FindFirst("ChartTraderControlAccountSelector") as NinjaTrader.Gui.Tools.AccountSelector;
+				if (sel == null)
+				{
+					Print("[ABP.API] GetSelectedAccountInternal: AccountSelector not found");
+					return null;
+				}
+				if (sel.SelectedAccount == null)
+				{
+					Print("[ABP.API] GetSelectedAccountInternal: SelectedAccount is null");
+					return null;
+				}
+				
 				string acctName = sel.SelectedAccount.ToString();
-				return Account.All.FirstOrDefault(a => acctName.Contains(a.Name));
+				var acct = Account.All.FirstOrDefault(a => acctName.Contains(a.Name));
+				if (acct == null)
+					Print($"[ABP.API] GetSelectedAccountInternal: No matching account for '{acctName}'");
+				else
+					Print($"[ABP.API] GetSelectedAccountInternal: Found account '{acct.Name}'");
+				return acct;
 			}
-			catch { return null; }
+			catch (Exception ex)
+			{
+				Print($"[ABP.API] GetSelectedAccountInternal exception: {ex.Message}");
+				return null;
+			}
 		}
 		
 		private Instrument GetSelectedInstrumentInternal()
 		{
-			if (ChartControl == null) return null;
+			if (ChartControl == null)
+			{
+				Print("[ABP.API] GetSelectedInstrumentInternal: ChartControl is null");
+				return null;
+			}
 			try
 			{
-				var sel = Window.GetWindow(ChartControl.OwnerChart)
-					.FindFirst("ChartWindowInstrumentSelector") as NinjaTrader.Gui.Tools.InstrumentSelector;
-				return sel?.Instrument;
+				var window = Window.GetWindow(ChartControl.OwnerChart);
+				if (window == null)
+				{
+					Print("[ABP.API] GetSelectedInstrumentInternal: Window is null");
+					return null;
+				}
+				
+				var sel = window.FindFirst("ChartWindowInstrumentSelector") as NinjaTrader.Gui.Tools.InstrumentSelector;
+				if (sel == null)
+				{
+					Print("[ABP.API] GetSelectedInstrumentInternal: InstrumentSelector not found");
+					// Fallback to chart's instrument
+					if (Instrument != null)
+					{
+						Print($"[ABP.API] GetSelectedInstrumentInternal: Using chart Instrument fallback: {Instrument.FullName}");
+						return Instrument;
+					}
+					return null;
+				}
+				
+				var instr = sel.Instrument;
+				if (instr == null)
+				{
+					Print("[ABP.API] GetSelectedInstrumentInternal: Instrument is null, trying chart fallback");
+					if (Instrument != null)
+					{
+						Print($"[ABP.API] GetSelectedInstrumentInternal: Using chart Instrument fallback: {Instrument.FullName}");
+						return Instrument;
+					}
+				}
+				else
+				{
+					Print($"[ABP.API] GetSelectedInstrumentInternal: Found instrument '{instr.FullName}'");
+				}
+				return instr;
 			}
-			catch { return null; }
+			catch (Exception ex)
+			{
+				Print($"[ABP.API] GetSelectedInstrumentInternal exception: {ex.Message}");
+				// Fallback
+				if (Instrument != null)
+				{
+					Print($"[ABP.API] GetSelectedInstrumentInternal: Using chart Instrument fallback after exception: {Instrument.FullName}");
+					return Instrument;
+				}
+				return null;
+			}
 		}
 		
 		private void ApiBuyMarket()
@@ -585,98 +547,153 @@ namespace NinjaTrader.NinjaScript.Indicators
 		/// </summary>
 		private void ApiBuyLimit(string priceArg)
 		{
+			Print($"[ABP.API] ApiBuyLimit called with priceArg='{priceArg ?? "null"}'");
+			
 			// Must run on UI thread for WPF access
 			if (ChartControl == null)
 			{
-				Print("[ABP.API] BuyLimit: ChartControl is null");
+				Print("[ABP.API] BuyLimit: ChartControl is null - trying direct execution");
+				// Try direct execution without dispatcher
+				ApiBuyLimitDirect(priceArg);
 				return;
 			}
 			
+			Print("[ABP.API] BuyLimit: Dispatching to UI thread...");
 			ChartControl.Dispatcher.BeginInvoke(new Action(() =>
 			{
+				ApiBuyLimitDirect(priceArg);
+			}));
+		}
+		
+		private void ApiBuyLimitDirect(string priceArg)
+		{
+			try
+			{
+				Print("[ABP.API] ApiBuyLimitDirect: Starting...");
+				
+				var acct = GetSelectedAccountInternal();
+				var instr = GetSelectedInstrumentInternal();
+				
+				// Fallback: use chart's instrument if ChartTrader lookup fails
+				if (instr == null && Instrument != null)
+				{
+					Print($"[ABP.API] BuyLimit: Using Instrument property fallback: {Instrument.FullName}");
+					instr = Instrument;
+				}
+				
+				if (acct == null)
+				{
+					// Last resort: try first available account
+					acct = Account.All.FirstOrDefault(a => a.Connection != null && a.Connection.Status == ConnectionStatus.Connected);
+					if (acct != null)
+						Print($"[ABP.API] BuyLimit: Using first connected account fallback: {acct.Name}");
+					else
+					{
+						Print("[ABP.API] BuyLimit: NO ACCOUNT FOUND - cannot place order");
+						return;
+					}
+				}
+				
+				if (instr == null)
+				{
+					Print("[ABP.API] BuyLimit: NO INSTRUMENT FOUND - cannot place order");
+					return;
+				}
+				
+				int qty = 1;
 				try
 				{
-					var acct = GetSelectedAccountInternal();
-					var instr = GetSelectedInstrumentInternal();
-					
-					// Fallback: use chart's instrument if ChartTrader lookup fails
-					if (instr == null && Instrument != null)
-						instr = Instrument;
-					
-					if (acct == null)
-					{
-						Print("[ABP.API] BuyLimit: no account found");
-						return;
-					}
-					if (instr == null)
-					{
-						Print("[ABP.API] BuyLimit: no instrument found");
-						return;
-					}
-					
-					int qty = 1;
-					try
+					if (ChartControl != null)
 					{
 						var qtySelector = Window.GetWindow(ChartControl.Parent)
-							.FindFirst("ChartTraderControlQuantitySelector") as NinjaTrader.Gui.Tools.QuantityUpDown;
-						if (qtySelector != null) qty = qtySelector.Value;
-					}
-					catch { }
-					
-					// Parse price from arg, fallback to current Close or last bar close
-					double limitPrice = 0;
-					if (!string.IsNullOrWhiteSpace(priceArg))
-					{
-						if (double.TryParse(priceArg, System.Globalization.NumberStyles.Float, 
-							System.Globalization.CultureInfo.InvariantCulture, out double parsed) && parsed > 0)
+							?.FindFirst("ChartTraderControlQuantitySelector") as NinjaTrader.Gui.Tools.QuantityUpDown;
+						if (qtySelector != null) 
 						{
-							limitPrice = instr.MasterInstrument.RoundToTickSize(parsed);
+							qty = qtySelector.Value;
+							Print($"[ABP.API] BuyLimit: Got qty from ChartTrader: {qty}");
 						}
 					}
-					
-					// Fallback to lastClose if parsing failed
-					if (limitPrice <= 0 && lastClose > 0)
-						limitPrice = instr.MasterInstrument.RoundToTickSize(lastClose);
-					
-					// Final fallback to current bar close
-					if (limitPrice <= 0 && CurrentBar >= 0)
-					{
-						try { limitPrice = instr.MasterInstrument.RoundToTickSize(Close[0]); }
-						catch { }
-					}
-					
-					if (limitPrice <= 0)
-					{
-						Print("[ABP.API] BuyLimit: could not determine limit price");
-						return;
-					}
-					
-					// Create and submit the limit order
-					var order = acct.CreateOrder(
-						instr,
-						OrderAction.Buy,
-						OrderType.Limit,
-						OrderEntry.Automated,
-						TimeInForce.Gtc,
-						qty,
-						limitPrice,
-						0,
-						"",
-						Name + "_ApiBuyLimit",
-						Core.Globals.MaxDate,
-						null
-					);
-					acct.Submit(new[] { order });
-					Print($"[ABP.API] BuyLimit submitted qty={qty} price={limitPrice} instr={instr.FullName}");
-					
-					// Monitor for fill and add bracket
-					MonitorFillAndBracket(order, instr);
 				}
 				catch (Exception ex)
 				{
-					Print($"[ABP.API] BuyLimit exception: {ex.Message}");
+					Print($"[ABP.API] BuyLimit: Error getting qty: {ex.Message}, using default qty=1");
 				}
-			}));
+				
+				// Parse price from arg, fallback to current Close or last bar close
+				double limitPrice = 0;
+				Print($"[ABP.API] BuyLimit: Parsing price from '{priceArg ?? "null"}', lastClose={lastClose}");
+				
+				if (!string.IsNullOrWhiteSpace(priceArg))
+				{
+					if (double.TryParse(priceArg, System.Globalization.NumberStyles.Float, 
+						System.Globalization.CultureInfo.InvariantCulture, out double parsed) && parsed > 0)
+					{
+						limitPrice = instr.MasterInstrument.RoundToTickSize(parsed);
+						Print($"[ABP.API] BuyLimit: Parsed price from arg: {limitPrice}");
+					}
+					else
+					{
+						Print($"[ABP.API] BuyLimit: Failed to parse price from arg '{priceArg}'");
+					}
+				}
+				
+				// Fallback to lastClose if parsing failed
+				if (limitPrice <= 0 && lastClose > 0)
+				{
+					limitPrice = instr.MasterInstrument.RoundToTickSize(lastClose);
+					Print($"[ABP.API] BuyLimit: Using lastClose fallback: {limitPrice}");
+				}
+				
+				// Final fallback to current bar close
+				if (limitPrice <= 0 && CurrentBar >= 0)
+				{
+					try 
+					{ 
+						limitPrice = instr.MasterInstrument.RoundToTickSize(Close[0]); 
+						Print($"[ABP.API] BuyLimit: Using Close[0] fallback: {limitPrice}");
+					}
+					catch (Exception ex)
+					{
+						Print($"[ABP.API] BuyLimit: Close[0] fallback failed: {ex.Message}");
+					}
+				}
+				
+				if (limitPrice <= 0)
+				{
+					Print("[ABP.API] BuyLimit: FAILED - could not determine limit price");
+					return;
+				}
+				
+				Print($"[ABP.API] BuyLimit: Creating order - acct={acct.Name}, instr={instr.FullName}, qty={qty}, price={limitPrice}");
+				
+				// Create and submit the limit order
+				var order = acct.CreateOrder(
+					instr,
+					OrderAction.Buy,
+					OrderType.Limit,
+					OrderEntry.Automated,
+					TimeInForce.Gtc,
+					qty,
+					limitPrice,
+					0,
+					"",
+					Name + "_ApiBuyLimit",
+					Core.Globals.MaxDate,
+					null
+				);
+				
+				Print($"[ABP.API] BuyLimit: Order created, submitting...");
+				acct.Submit(new[] { order });
+				Print($"[ABP.API] BuyLimit: ORDER SUBMITTED - qty={qty} price={limitPrice} instr={instr.FullName}");
+				
+				// Monitor for fill and add bracket
+				MonitorFillAndBracket(order, instr);
+			}
+			catch (Exception ex)
+			{
+				Print($"[ABP.API] ApiBuyLimitDirect EXCEPTION: {ex.Message}");
+				Print($"[ABP.API] Stack: {ex.StackTrace}");
+			}
 		}
 		
 		/// <summary>
@@ -685,98 +702,152 @@ namespace NinjaTrader.NinjaScript.Indicators
 		/// </summary>
 		private void ApiSellLimit(string priceArg)
 		{
+			Print($"[ABP.API] ApiSellLimit called with priceArg='{priceArg ?? "null"}'");
+			
 			// Must run on UI thread for WPF access
 			if (ChartControl == null)
 			{
-				Print("[ABP.API] SellLimit: ChartControl is null");
+				Print("[ABP.API] SellLimit: ChartControl is null - trying direct execution");
+				ApiSellLimitDirect(priceArg);
 				return;
 			}
 			
+			Print("[ABP.API] SellLimit: Dispatching to UI thread...");
 			ChartControl.Dispatcher.BeginInvoke(new Action(() =>
 			{
+				ApiSellLimitDirect(priceArg);
+			}));
+		}
+		
+		private void ApiSellLimitDirect(string priceArg)
+		{
+			try
+			{
+				Print("[ABP.API] ApiSellLimitDirect: Starting...");
+				
+				var acct = GetSelectedAccountInternal();
+				var instr = GetSelectedInstrumentInternal();
+				
+				// Fallback: use chart's instrument if ChartTrader lookup fails
+				if (instr == null && Instrument != null)
+				{
+					Print($"[ABP.API] SellLimit: Using Instrument property fallback: {Instrument.FullName}");
+					instr = Instrument;
+				}
+				
+				if (acct == null)
+				{
+					// Last resort: try first available account
+					acct = Account.All.FirstOrDefault(a => a.Connection != null && a.Connection.Status == ConnectionStatus.Connected);
+					if (acct != null)
+						Print($"[ABP.API] SellLimit: Using first connected account fallback: {acct.Name}");
+					else
+					{
+						Print("[ABP.API] SellLimit: NO ACCOUNT FOUND - cannot place order");
+						return;
+					}
+				}
+				
+				if (instr == null)
+				{
+					Print("[ABP.API] SellLimit: NO INSTRUMENT FOUND - cannot place order");
+					return;
+				}
+				
+				int qty = 1;
 				try
 				{
-					var acct = GetSelectedAccountInternal();
-					var instr = GetSelectedInstrumentInternal();
-					
-					// Fallback: use chart's instrument if ChartTrader lookup fails
-					if (instr == null && Instrument != null)
-						instr = Instrument;
-					
-					if (acct == null)
-					{
-						Print("[ABP.API] SellLimit: no account found");
-						return;
-					}
-					if (instr == null)
-					{
-						Print("[ABP.API] SellLimit: no instrument found");
-						return;
-					}
-					
-					int qty = 1;
-					try
+					if (ChartControl != null)
 					{
 						var qtySelector = Window.GetWindow(ChartControl.Parent)
-							.FindFirst("ChartTraderControlQuantitySelector") as NinjaTrader.Gui.Tools.QuantityUpDown;
-						if (qtySelector != null) qty = qtySelector.Value;
-					}
-					catch { }
-					
-					// Parse price from arg, fallback to current Close or last bar close
-					double limitPrice = 0;
-					if (!string.IsNullOrWhiteSpace(priceArg))
-					{
-						if (double.TryParse(priceArg, System.Globalization.NumberStyles.Float, 
-							System.Globalization.CultureInfo.InvariantCulture, out double parsed) && parsed > 0)
+							?.FindFirst("ChartTraderControlQuantitySelector") as NinjaTrader.Gui.Tools.QuantityUpDown;
+						if (qtySelector != null) 
 						{
-							limitPrice = instr.MasterInstrument.RoundToTickSize(parsed);
+							qty = qtySelector.Value;
+							Print($"[ABP.API] SellLimit: Got qty from ChartTrader: {qty}");
 						}
 					}
-					
-					// Fallback to lastClose if parsing failed
-					if (limitPrice <= 0 && lastClose > 0)
-						limitPrice = instr.MasterInstrument.RoundToTickSize(lastClose);
-					
-					// Final fallback to current bar close
-					if (limitPrice <= 0 && CurrentBar >= 0)
-					{
-						try { limitPrice = instr.MasterInstrument.RoundToTickSize(Close[0]); }
-						catch { }
-					}
-					
-					if (limitPrice <= 0)
-					{
-						Print("[ABP.API] SellLimit: could not determine limit price");
-						return;
-					}
-					
-					// Create and submit the limit order
-					var order = acct.CreateOrder(
-						instr,
-						OrderAction.SellShort,
-						OrderType.Limit,
-						OrderEntry.Automated,
-						TimeInForce.Gtc,
-						qty,
-						limitPrice,
-						0,
-						"",
-						Name + "_ApiSellLimit",
-						Core.Globals.MaxDate,
-						null
-					);
-					acct.Submit(new[] { order });
-					Print($"[ABP.API] SellLimit submitted qty={qty} price={limitPrice} instr={instr.FullName}");
-					
-					// Monitor for fill and add bracket
-					MonitorFillAndBracket(order, instr);
 				}
 				catch (Exception ex)
 				{
-					Print($"[ABP.API] SellLimit exception: {ex.Message}");
+					Print($"[ABP.API] SellLimit: Error getting qty: {ex.Message}, using default qty=1");
 				}
-			}));
+				
+				// Parse price from arg, fallback to current Close or last bar close
+				double limitPrice = 0;
+				Print($"[ABP.API] SellLimit: Parsing price from '{priceArg ?? "null"}', lastClose={lastClose}");
+				
+				if (!string.IsNullOrWhiteSpace(priceArg))
+				{
+					if (double.TryParse(priceArg, System.Globalization.NumberStyles.Float, 
+						System.Globalization.CultureInfo.InvariantCulture, out double parsed) && parsed > 0)
+					{
+						limitPrice = instr.MasterInstrument.RoundToTickSize(parsed);
+						Print($"[ABP.API] SellLimit: Parsed price from arg: {limitPrice}");
+					}
+					else
+					{
+						Print($"[ABP.API] SellLimit: Failed to parse price from arg '{priceArg}'");
+					}
+				}
+				
+				// Fallback to lastClose if parsing failed
+				if (limitPrice <= 0 && lastClose > 0)
+				{
+					limitPrice = instr.MasterInstrument.RoundToTickSize(lastClose);
+					Print($"[ABP.API] SellLimit: Using lastClose fallback: {limitPrice}");
+				}
+				
+				// Final fallback to current bar close
+				if (limitPrice <= 0 && CurrentBar >= 0)
+				{
+					try 
+					{ 
+						limitPrice = instr.MasterInstrument.RoundToTickSize(Close[0]); 
+						Print($"[ABP.API] SellLimit: Using Close[0] fallback: {limitPrice}");
+					}
+					catch (Exception ex)
+					{
+						Print($"[ABP.API] SellLimit: Close[0] fallback failed: {ex.Message}");
+					}
+				}
+				
+				if (limitPrice <= 0)
+				{
+					Print("[ABP.API] SellLimit: FAILED - could not determine limit price");
+					return;
+				}
+				
+				Print($"[ABP.API] SellLimit: Creating order - acct={acct.Name}, instr={instr.FullName}, qty={qty}, price={limitPrice}");
+				
+				// Create and submit the limit order
+				var order = acct.CreateOrder(
+					instr,
+					OrderAction.SellShort,
+					OrderType.Limit,
+					OrderEntry.Automated,
+					TimeInForce.Gtc,
+					qty,
+					limitPrice,
+					0,
+					"",
+					Name + "_ApiSellLimit",
+					Core.Globals.MaxDate,
+					null
+				);
+				
+				Print($"[ABP.API] SellLimit: Order created, submitting...");
+				acct.Submit(new[] { order });
+				Print($"[ABP.API] SellLimit: ORDER SUBMITTED - qty={qty} price={limitPrice} instr={instr.FullName}");
+				
+				// Monitor for fill and add bracket
+				MonitorFillAndBracket(order, instr);
+			}
+			catch (Exception ex)
+			{
+				Print($"[ABP.API] ApiSellLimitDirect EXCEPTION: {ex.Message}");
+				Print($"[ABP.API] Stack: {ex.StackTrace}");
+			}
 		}
 		
 		/// <summary>
@@ -908,11 +979,10 @@ namespace NinjaTrader.NinjaScript.Indicators
 	            // Defer UI creation until chart is ready
 	            ChartControl.Dispatcher.BeginInvoke(new Action(CreateWPFControls));
 				
-				// Register with bridge
+				// Register with bridge (via reflection to avoid naming conflicts)
 				if (AutoRegisterBridge && !string.IsNullOrWhiteSpace(BridgeEndpoint))
 				{
-					ABPBridge.Register(BridgeEndpoint, this);
-					Print($"[ABP] Registered bridge endpoint: {BridgeEndpoint}");
+					RegisterWithBridge();
 				}
 	        }
 	        else if (State == State.Terminated)
@@ -920,12 +990,82 @@ namespace NinjaTrader.NinjaScript.Indicators
 	            // Clean up when indicator is removed
 	            ChartControl?.Dispatcher.BeginInvoke(new Action(RemoveWPFControls));
 				
-				// Unregister from bridge
+				// Unregister from bridge (via reflection)
 				if (!string.IsNullOrWhiteSpace(BridgeEndpoint))
 				{
-					ABPBridge.Unregister(BridgeEndpoint);
+					UnregisterFromBridge();
 				}
 	        }
+		}
+		
+		private Type FindBridgeType()
+		{
+			// Try direct Type.GetType first
+			var bridgeType = Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge, NinjaTrader.Custom", false)
+			                 ?? Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge, NinjaTrader.Core", false)
+			                 ?? Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge", false);
+			
+			if (bridgeType != null) return bridgeType;
+			
+			// Search all loaded assemblies
+			foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+			{
+				try
+				{
+					bridgeType = asm.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge", false);
+					if (bridgeType != null)
+					{
+						Print($"[ABP] Found ABPBridge in assembly: {asm.GetName().Name}");
+						return bridgeType;
+					}
+				}
+				catch { }
+			}
+			
+			return null;
+		}
+		
+		private void RegisterWithBridge()
+		{
+			try
+			{
+				var bridgeType = FindBridgeType();
+				if (bridgeType == null)
+				{
+					Print($"[ABP] WARNING: ABPBridge type not found - bridge registration skipped");
+					Print($"[ABP] Loaded assemblies: {string.Join(", ", AppDomain.CurrentDomain.GetAssemblies().Select(a => a.GetName().Name).Take(10))}...");
+					return;
+				}
+				
+				var registerMi = bridgeType.GetMethod("Register", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+				if (registerMi == null)
+				{
+					Print($"[ABP] WARNING: ABPBridge.Register method not found");
+					return;
+				}
+				
+				registerMi.Invoke(null, new object[] { BridgeEndpoint, this });
+				Print($"[ABP] Successfully registered bridge endpoint: {BridgeEndpoint}");
+			}
+			catch (Exception ex)
+			{
+				Print($"[ABP] Bridge registration failed: {ex.Message}");
+				if (ex.InnerException != null)
+					Print($"[ABP] Inner exception: {ex.InnerException.Message}");
+			}
+		}
+		
+		private void UnregisterFromBridge()
+		{
+			try
+			{
+				var bridgeType = FindBridgeType();
+				if (bridgeType == null) return;
+				
+				var unregisterMi = bridgeType.GetMethod("Unregister", System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static);
+				unregisterMi?.Invoke(null, new object[] { BridgeEndpoint });
+			}
+			catch { }
 		}
 
 		private void CreateWPFControls()
@@ -2144,4 +2284,3 @@ namespace NinjaTrader.NinjaScript.Strategies
 }
 
 #endregion
-

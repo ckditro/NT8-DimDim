@@ -611,32 +611,119 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		    }
 		}
 		
+		// Cached bridge type for performance
+		private Type _abpBridgeType;
+		private Type _abpCmdType;
+		
+		private Type FindABPBridgeType()
+		{
+			if (_abpBridgeType != null) return _abpBridgeType;
+			
+			// Try direct Type.GetType first
+			_abpBridgeType = Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge, NinjaTrader.Custom", false)
+			                 ?? Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge, NinjaTrader.Core", false)
+			                 ?? Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge", false);
+			
+			if (_abpBridgeType != null) return _abpBridgeType;
+			
+			// Search all loaded assemblies
+			foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+			{
+				try
+				{
+					_abpBridgeType = asm.GetType("NinjaTrader.NinjaScript.Indicators.ABPBridge", false);
+					if (_abpBridgeType != null)
+					{
+						if (DebugMode) Dbg($"[ABP] Found ABPBridge in assembly: {asm.GetName().Name}");
+						return _abpBridgeType;
+					}
+				}
+				catch { }
+			}
+			
+			return null;
+		}
+		
+		private Type FindABPCommandType()
+		{
+			if (_abpCmdType != null) return _abpCmdType;
+			
+			_abpCmdType = Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPCommand, NinjaTrader.Custom", false)
+			              ?? Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPCommand, NinjaTrader.Core", false)
+			              ?? Type.GetType("NinjaTrader.NinjaScript.Indicators.ABPCommand", false);
+			
+			if (_abpCmdType != null) return _abpCmdType;
+			
+			// Search all loaded assemblies
+			foreach (var asm in AppDomain.CurrentDomain.GetAssemblies())
+			{
+				try
+				{
+					_abpCmdType = asm.GetType("NinjaTrader.NinjaScript.Indicators.ABPCommand", false);
+					if (_abpCmdType != null) return _abpCmdType;
+				}
+				catch { }
+			}
+			
+			return null;
+		}
+		
+		// Uses reflection so DDPlotReader does NOT require compiling against ABPBridge directly
 		private bool ABPEndpointExists()
 		{
 		    try
 		    {
-		        return ABPBridge.Exists(ABPEndpoint);
-		    } catch { return false; }
+		        var bridgeType = FindABPBridgeType();
+		        if (bridgeType == null)
+		        {
+		            if (DebugMode) Dbg("[ABP] ABPBridge type not found");
+		            return false;
+		        }
+		        var existsMi = bridgeType.GetMethod("Exists", BindingFlags.Public | BindingFlags.Static);
+		        if (existsMi == null) return false;
+		        return (bool)existsMi.Invoke(null, new object[] { ABPEndpoint });
+		    }
+		    catch { return false; }
 		}
 		
 
 		// Entry: map +1/-1 to BuyLimit / SellLimit (ABP API with price argument)
+		// Uses reflection so DDPlotReader does NOT require compiling against ABPBridge directly
 		private bool TrySendABPEntry(int sign, string reason = "DDPlotReader")
 		{
 		    try
 		    {
-		        if (!SendToABP || string.IsNullOrWhiteSpace(ABPEndpoint) || sign == 0) return false;
+		        Print($"[DDPR.ABP] TrySendABPEntry called: sign={sign}, endpoint='{ABPEndpoint}', SendToABP={SendToABP}");
+		        
+		        if (!SendToABP || string.IsNullOrWhiteSpace(ABPEndpoint) || sign == 0)
+		        {
+		            Print($"[DDPR.ABP] SKIPPED: SendToABP={SendToABP}, endpoint empty={string.IsNullOrWhiteSpace(ABPEndpoint)}, sign={sign}");
+		            return false;
+		        }
+		
+		        // Resolve types via reflection (using cached finder)
+		        var bridgeType = FindABPBridgeType();
+		        var cmdType = FindABPCommandType();
+		        
+		        if (bridgeType == null || cmdType == null)
+		        {
+		            Print($"[DDPR.ABP] FAILED: Bridge type found={bridgeType != null}, Command type found={cmdType != null}");
+		            return false;
+		        }
 		
 		        // Extra guard + helpful debug
-		        if (!ABPEndpointExists())
+		        bool exists = ABPEndpointExists();
+		        Print($"[DDPR.ABP] ABPEndpointExists('{ABPEndpoint}') = {exists}");
+		        
+		        if (!exists)
 		        {
-		            if (DebugMode) Dbg($"[DDPR] ABP endpoint '{ABPEndpoint}' not found (Exists=false) – not sending.");
+		            Print($"[DDPR.ABP] FAILED: ABP endpoint '{ABPEndpoint}' not found");
 		            return false;
 		        }
 		
 		        // Use limit orders with current price as the entry price
-		        // The ABP will place limit at this price, then add bracket on fill
-		        var cmd = sign > 0 ? ABPCommand.BuyLimit : ABPCommand.SellLimit;
+		        string cmdName = sign > 0 ? "BuyLimit" : "SellLimit";
+		        var cmd = Enum.Parse(cmdType, cmdName, ignoreCase: false);
 		        
 		        // Pass the current price as argument for the limit order
 		        string priceArg = null;
@@ -646,17 +733,35 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		            {
 		                double entryPrice = Closes[0][0];
 		                priceArg = entryPrice.ToString(System.Globalization.CultureInfo.InvariantCulture);
+		                Print($"[DDPR.ABP] Price from Closes[0][0] = {entryPrice} → priceArg='{priceArg}'");
+		            }
+		            else
+		            {
+		                Print($"[DDPR.ABP] Could not get price from Closes - Closes null={Closes == null}, CurrentBar={CurrentBar}");
 		            }
 		        }
-		        catch { }
+		        catch (Exception ex)
+		        {
+		            Print($"[DDPR.ABP] Error getting price: {ex.Message}");
+		        }
 		        
-		        bool ok = ABPBridge.SendAck(ABPEndpoint, cmd, reason, priceArg);
-		        if (DebugMode) Dbg($"[DDPR] ABP {(sign > 0 ? "BuyLimit" : "SellLimit")} sent={ok} ep='{ABPEndpoint}' price={priceArg ?? "default"}");
+		        // Call SendAck via reflection
+		        var sendAckMi = bridgeType.GetMethod("SendAck", BindingFlags.Public | BindingFlags.Static);
+		        if (sendAckMi == null)
+		        {
+		            Print($"[DDPR.ABP] FAILED: SendAck method not found");
+		            return false;
+		        }
+		        
+		        Print($"[DDPR.ABP] Calling ABPBridge.SendAck: cmd={cmdName}, reason='{reason}', priceArg='{priceArg ?? "null"}'");
+		        bool ok = (bool)sendAckMi.Invoke(null, new object[] { ABPEndpoint, cmd, reason, priceArg });
+		        Print($"[DDPR.ABP] ABPBridge.SendAck returned: {ok}");
+		        
 		        return ok;
 		    }
 		    catch (Exception ex)
 		    {
-		        if (DebugMode) Dbg("[DDPR] TrySendABPEntry error: " + ex.Message);
+		        Print($"[DDPR.ABP] TrySendABPEntry EXCEPTION: {ex.Message}");
 		        return false;
 		    }
 		}
@@ -664,13 +769,22 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 
 		
 		// Optional: "close" for ABP → use Cancel (all working)
+		// Uses reflection so DDPlotReader does NOT require compiling against ABPBridge directly
 		private bool TrySendABPCancel(string reason = "DDPlotReader")
 		{
 		    try
 		    {
 		        if (!SendToABP || !ABPEndpointExists()) return false;
 		
-		        bool ok = ABPBridge.SendAck(ABPEndpoint, ABPCommand.Cancel, reason, null);
+		        var bridgeType = FindABPBridgeType();
+		        var cmdType = FindABPCommandType();
+		        if (bridgeType == null || cmdType == null) return false;
+		        
+		        var cmdCancel = Enum.Parse(cmdType, "Cancel", ignoreCase: false);
+		        var sendAckMi = bridgeType.GetMethod("SendAck", BindingFlags.Public | BindingFlags.Static);
+		        if (sendAckMi == null) return false;
+		        
+		        bool ok = (bool)sendAckMi.Invoke(null, new object[] { ABPEndpoint, cmdCancel, reason, null });
 		        if (DebugMode) Dbg($"[DDPR] ABP Cancel sent={ok} ep='{ABPEndpoint}'");
 		        return ok;
 		    }
@@ -924,14 +1038,19 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		    switch (lastDest)
 		    {
 				
-				case Dest.ABP:
-    			try
-    			{
-    			    bool isFlat;
-    			    if (ABPBridge.TryQueryIsFlat(ABPEndpoint, out isFlat))
-    			        return isFlat;
-    			} catch { }
-    			return true; // if no query, assume flat to avoid deadlocks
+			case Dest.ABP:
+			try
+			{
+			    var bridgeType = FindABPBridgeType();
+			    var mi = bridgeType?.GetMethod("TryQueryIsFlat", BindingFlags.Public | BindingFlags.Static);
+			    if (mi != null)
+			    {
+			        object[] args = new object[] { ABPEndpoint, false };
+			        bool ok = (bool)mi.Invoke(null, args);
+			        if (ok) return (bool)args[1];
+			    }
+			} catch { }
+			return true; // if no query, assume flat to avoid deadlocks
 
 	
 		        case Dest.TickHunter:
@@ -1004,13 +1123,33 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		
 		private bool TryEnterToDestination(int dir, string reason)
 		{
-		    if (thState != TradeState.Flat) return false;
-		    if (!AnyEndpointExists())       return false;
-			if (!sendEnabled) return false;       // <- SEND gate
-			if (!PassesDirectionFilter(dir)) return false;
+		    // Diagnostic: log entry attempt
+		    Print($"[DDPR] TryEnterToDestination: dir={dir}, destMode={destMode}, sendEnabled={sendEnabled}, thState={thState}");
+		    Print($"[DDPR] Flags: SendToABP={SendToABP}, SendToTickHunter={SendToTickHunter}, SendToDDATM={SendToDDATM}");
+		    
+		    if (thState != TradeState.Flat)
+		    {
+		        Print($"[DDPR] SKIP: thState={thState} (not Flat)");
+		        return false;
+		    }
+		    if (!AnyEndpointExists())
+		    {
+		        Print($"[DDPR] SKIP: No endpoint exists (ABP={ABPEndpointExists()}, TH={BridgeEndpointExists()}, DDATM={DDATMEndpointExists()})");
+		        return false;
+		    }
+			if (!sendEnabled)
+			{
+			    Print($"[DDPR] SKIP: sendEnabled=false (SEND toggle is off)");
+			    return false;
+			}
+			if (!PassesDirectionFilter(dir))
+			{
+			    Print($"[DDPR] SKIP: Direction filter blocked dir={dir}");
+			    return false;
+			}
 			if (!ApiCallAllowed())
 			{
-			    if (DebugMode) Dbg("[DDPR] ENTRY skipped: API already sent this bar");
+			    Print("[DDPR] SKIP: API already sent this bar");
 			    return false;
 			}
 
@@ -1068,9 +1207,12 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			}
 			else // ABP selected
 			{
+			    Print($"[DDPR] destMode=ABP: Checking SendToABP={SendToABP}, ABPEndpointExists={ABPEndpointExists()}");
 			    if (SendToABP && ABPEndpointExists())
 			    {
+			        Print($"[DDPR] >>> Calling TrySendABPEntry(dir={dir})");
 			        fired = TrySendABPEntry(dir, reason);
+			        Print($"[DDPR] <<< TrySendABPEntry returned: {fired}");
 			        if (fired) destFired = Dest.ABP;
 			    }
 			    if (!fired && SendToDDATM && DDATMEndpointExists())
@@ -3333,14 +3475,14 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			
 			try
 			{
-			    bool needsRealtimeSignals = State == State.Realtime && (SendToTickHunter || SendToDDATM);
-			    if (needsRealtimeSignals)
-			    {
-			        bool   isFinite = !double.IsNaN(candidate) && !double.IsInfinity(candidate);
-			        double curr     = isFinite ? candidate : 0.0;
-			        int    currSign = ApproxPositive(curr) ? +1 : (ApproxNegative(curr) ? -1 : 0);
+		    bool needsRealtimeSignals = State == State.Realtime && (SendToTickHunter || SendToDDATM || SendToABP);
+		    if (needsRealtimeSignals)
+		    {
+		        bool   isFinite = !double.IsNaN(candidate) && !double.IsInfinity(candidate);
+		        double curr     = isFinite ? candidate : 0.0;
+		        int    currSign = ApproxPositive(curr) ? +1 : (ApproxNegative(curr) ? -1 : 0);
 
-			        if (SendToTickHunter || SendToDDATM)
+		        if (SendToTickHunter || SendToDDATM || SendToABP)
 			        {
 			            // === TICK BUFFER: Use prevSignFromBuffer for cross detection ===
 			            bool crossUp    = (prevSignFromBuffer <= 0) && (currSign > 0);
@@ -3379,6 +3521,14 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			                case TradeState.Flat:
 			                {
 			                    bool bootstrap = (lastTriggerBar < 0) && (currSign != 0);
+			                    
+			                    // Debug: log signal check conditions
+			                    if (currSign != 0 || newCross)
+			                    {
+			                        Print($"[DDPR.Signal] currSign={currSign}, newCross={newCross}, bootstrap={bootstrap}");
+			                        Print($"[DDPR.Signal] hasSignalThisBar={hasSignalThisBar}, spacingSatisfied={spacingSatisfied}, allowThisBar={allowThisBar}");
+			                        Print($"[DDPR.Signal] AnyEndpointExists={AnyEndpointExists()}, CurrentBar={CurrentBar}, lastPopBar={lastPopBar}");
+			                    }
 			
 			                    if (AnyEndpointExists()
 			                        && spacingSatisfied && allowThisBar
@@ -3389,15 +3539,18 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			                        string reason = newCross
 			                            ? $"DDPlotReader '{SelectedLabel}' prevSign={prevSignFromBuffer:+#;-#;0} curr={curr:G6} bar={tickBufferBar} ticks={tickBufferCount} (cross)"
 			                            : $"DDPlotReader '{SelectedLabel}' curr={curr:G6} bar={tickBufferBar} (bootstrap)";
+			                        Print($"[DDPR.Signal] TRIGGER! dir={dir} CurrentBar={CurrentBar} lastPopBar={lastPopBar}");
 									if (CurrentBar != lastPopBar)
 			                   			TryEnterToDestination(dir, reason);
+			                        else
+			                            Print($"[DDPR.Signal] BLOCKED by lastPopBar check");
 			                    }
-			                    else if (DebugMode && (newCross || bootstrap))
+			                    else if (newCross || bootstrap)
 			                    {
 			                        string blocked = !hasSignalThisBar ? "noSignalThisBar" : 
 			                                         !spacingSatisfied ? "spacingThrottle" : 
 			                                         !allowThisBar ? "oncePerBar" : "noEndpoint";
-			                        Print($"[DDPlotReader] BLOCKED {(newCross?"cross":"bootstrap")} bar={tickBufferBar} ticks={tickBufferCount} prevSign={prevSignFromBuffer} currSign={currSign} reason={blocked}");
+			                        Print($"[DDPR.Signal] BLOCKED {(newCross?"cross":"bootstrap")} reason={blocked}");
 			                    }
 			                    break;
 			                }
