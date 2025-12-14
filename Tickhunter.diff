@@ -1,0 +1,147 @@
+42a43,56
+> 	public enum THCommand
+> 	{
+> 	    TPPlus,
+> 	    BEPlus,
+> 	    SLPlus,
+> 	    BuyMarket,
+> 	    SellMarket,
+> 	    BuyPop,
+> 	    SellPop,
+> 	    BuyDrop,
+> 	    SellDrop,
+> 	    Close
+> 	}
+> 	
+2204,2209c2218,2315
+<         //public override void CloseStrategy(string signalName)
+<         //{
+< 
+< 
+<         // base.CloseStrategy(signalName);
+<         //}
+---
+> 		#region === PUBLIC API (External control) ===
+> 		
+> 		
+> 		public void ApiExecute(THCommand cmd, string reason = "API")
+> 		{
+> 		    // Ensure we run on the UI thread like the buttons do
+> 		    var dispatcher = this.ChartControl?.Dispatcher;
+> 		    if (dispatcher == null)
+> 		        return;
+> 		
+> 		    dispatcher.InvokeAsync(() =>
+> 		    {
+> 		        // Optionally auto-activate the panel (same behavior the UI expects)
+> 		        ActivateTickHunter(reason);
+> 		
+> 		        switch (cmd)
+> 		        {
+> 		            case THCommand.TPPlus:
+> 		                HandleTakeProfitPlus($"{reason} -> TP+");
+> 		                break;
+> 		            case THCommand.BEPlus:
+> 		                HandleBreakEvenPlus($"{reason} -> BE+");
+> 		                break;
+> 		            case THCommand.SLPlus:
+> 		                HandleStopLossPlus($"{reason} -> SL+");
+> 		                break;
+> 		            case THCommand.BuyMarket:
+> 		                HandleBuyMarket($"{reason} -> BuyMarket");
+> 		                break;
+> 		            case THCommand.SellMarket:
+> 		                HandleSellMarket($"{reason} -> SellMarket");
+> 		                break;
+> 		            case THCommand.BuyPop:
+> 		                HandleBuyPop($"{reason} -> Pop+");
+> 		                break;
+> 		            case THCommand.SellPop:
+> 		                HandleSellPop($"{reason} -> Pop-");
+> 		                break;
+> 		            case THCommand.BuyDrop:
+> 		                HandleBuyDrop($"{reason} -> Drop+");
+> 		                break;
+> 		            case THCommand.SellDrop:
+> 		                HandleSellDrop($"{reason} -> Drop-");
+> 		                break;
+> 					case THCommand.Close:      
+> 						ApiCloseNow(reason);   
+> 						break;
+> 		        }
+> 		    });
+> 		}
+> 		
+> 		// Convenience strongly-typed wrappers (optional)
+> 		public void ApiTPPlus(string reason = "API")       => ApiExecute(THCommand.TPPlus, reason);
+> 		public void ApiBEPlus(string reason = "API")       => ApiExecute(THCommand.BEPlus, reason);
+> 		public void ApiSLPlus(string reason = "API")       => ApiExecute(THCommand.SLPlus, reason);
+> 		public void ApiBuyMarket(string reason = "API")    => ApiExecute(THCommand.BuyMarket, reason);
+> 		public void ApiSellMarket(string reason = "API")   => ApiExecute(THCommand.SellMarket, reason);
+> 		public void ApiBuyPop(string reason = "API")       => ApiExecute(THCommand.BuyPop, reason);
+> 		public void ApiSellPop(string reason = "API")      => ApiExecute(THCommand.SellPop, reason);
+> 		public void ApiBuyDrop(string reason = "API")      => ApiExecute(THCommand.BuyDrop, reason);
+> 		public void ApiSellDrop(string reason = "API")     => ApiExecute(THCommand.SellDrop, reason);
+> 		
+> 		private void ApiCloseNow(string reason)
+> 		{
+> 		    // Mirrors the Close button handler (FlattenEverything for attached + blended)
+> 		    // See built-in handler near HHCloseAllButtonName click.  :contentReference[oaicite:1]{index=1}
+> 		    try
+> 		    {
+> 		        // Choose instruments same as button path
+> 		        Instrument closeAttachedInstrument = (currentProfitTargetStatus == TickHunterProfitTargetTypes.EquityCloseAllTarget) ? null : attachedInstrument;
+> 		        Instrument closeBlendedInstrument  = null;
+> 		
+> 		        if (IsBlendedInstrumentEnabled())
+> 		        {
+> 		            // If attached is null, still allow blended close as per original path
+> 		            closeBlendedInstrument = blendedInstrument;
+> 		        }
+> 		
+> 		        string signalName = $"{reason} -> Close";
+> 		        bool attachedFound = FlattenEverything(signalName, true, closeAttachedInstrument);
+> 		        bool blendedFound  = FlattenEverything(signalName, true, closeBlendedInstrument);
+> 		
+> 		        if (!attachedFound && !blendedFound)
+> 		            RealLogger.PrintOutput("Close Error: No position found for " + attachedInstrument.FullName.ToString());
+> 		    }
+> 		    catch { /* non-fatal */ }
+> 		}
+> 		
+> 		// === PUBLIC read-only status API (queryable via Bridge) ===
+> 		public bool ApiIsFlat()
+> 		{
+> 		    try
+> 		    {
+> 		        // Reuse existing internal logic TH already uses
+> 		        return IsAccountFlat(); // TH calls this internally before FlattenEverything, etc.
+> 		    }
+> 		    catch { return true; }
+> 		}
+2210a2317,2341
+> 		// Optional: expose current net market position across the account (Long/Short/Flat)
+> 		public NinjaTrader.Cbi.MarketPosition ApiMarketPosition()
+> 		{
+> 		    try
+> 		    {
+> 		        // If you already aggregate positions elsewhere, reuse that.
+> 		        // Fallback: scan RealPositionService like TH does around FlattenEverything.
+> 		        bool anyPos = !IsAccountFlat();
+> 		        if (!anyPos) return NinjaTrader.Cbi.MarketPosition.Flat;
+> 		
+> 		        // Simple heuristic: first non-flat real position
+> 		        for (int i = 0; i < RealPositionService.PositionCount; i++)
+> 		        {
+> 		            if (RealPositionService.TryGetByIndex(i, out var pos) && !pos.IsFlat())
+> 		                return pos.MarketPosition;
+> 		        }
+> 		    }
+> 		    catch { /* fall through */ }
+> 		    return NinjaTrader.Cbi.MarketPosition.Flat;
+> 		}
+> 		
+> 		
+> 		#endregion
+> 		
+> 		
