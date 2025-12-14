@@ -32,9 +32,6 @@ using System.Diagnostics;
 using System.Threading; // (optional)
 using System.IO;        // File-based settings persistence
 
-using vgaBridge = NinjaTrader.NinjaScript.Indicators.vgaDROEBv3Bridge;
-using vgaPadCommand = NinjaTrader.NinjaScript.Indicators.vgaPadCommand;
-
 #endregion
 
 
@@ -162,14 +159,6 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		[NinjaScriptProperty, Display(Name="Bridge Endpoint", GroupName="TickHunter", Order=1)]
 		public string BridgeEndpoint { get; set; } = "default";
 
-		#region VGA Bridge
-		[NinjaScriptProperty, Display(Name="Send to vgaDROEBv3", GroupName="VGA Bridge", Order=0)]
-		public bool SendToVgaBridge { get; set; } = false;
-
-		[NinjaScriptProperty, Display(Name="VGA Bridge Endpoint", GroupName="VGA Bridge", Order=1)]
-		public string VgaBridgeEndpoint { get; set; } = "vga_droeb";
-		#endregion
-		
 		[NinjaScriptProperty, Display(Name="Fire Once Per Bar", GroupName="TickHunter", Order=2)]
 		public bool FireOncePerBar { get; set; } = true;
 		
@@ -217,8 +206,6 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		private int  lastSentSign   = 0;   // -1 bear, +1 bull, 0 neutral
 		private int  lastSentOnBar  = -1;  // CurrentBar index when last command was sent
 		private int  lastApiCallBar = -1;
-		private bool lastVgaFibWasFive = false;
-		private bool vgaFibInitialized = false;
 
 		// ---- Catch-up state ----
 		private int  pendingSign = 0;           // +1/-1 if a cross happened while endpoint wasn't ready
@@ -499,8 +486,6 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
                 // Needs System.Windows.Media.Brushes (WPF)
                 AddPlot(Brushes.Transparent, "Selected");
 				SendEnabledDefault = false;   // default OFF
-				lastVgaFibWasFive = false;
-				vgaFibInitialized = false;
 				
             }
             else if (State == State.DataLoaded)
@@ -508,10 +493,6 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
                 SelectedMirror = Values[0];
                 EnsureMouseHook();
 				sendEnabled = SendEnabledDefault;  // <- initialize runtime gate
-				lastVgaFibWasFive = false;
-				vgaFibInitialized = false;
-				if (SendToVgaBridge)
-				    EnsureVgaFibDefault();
 				
 				// decide initial destination mode from properties
 				if (SendToDDTP && !SendToTickHunter && !SendToDDATM) destMode = DestMode.DDTP;
@@ -560,8 +541,6 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			    UnhookMouse();
 			    StopCatalogTimer();
 			    DisposeDeviceResources();
-				lastVgaFibWasFive = false;
-				vgaFibInitialized = false;
 			}
 
 
@@ -824,61 +803,6 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		    }
 		}
 
-		private bool VgaBridgeEndpointExists()
-		{
-		    if (string.IsNullOrWhiteSpace(VgaBridgeEndpoint))
-		        return false;
-		    try { return vgaBridge.Exists(VgaBridgeEndpoint); }
-		    catch { return false; }
-		}
-
-		private bool TrySendVgaFib(bool useFib5, string reason)
-		{
-		    if (!SendToVgaBridge)
-		        return false;
-		    if (string.IsNullOrWhiteSpace(VgaBridgeEndpoint))
-		        return false;
-		    if (!VgaBridgeEndpointExists())
-		        return false;
-		    var cmd = useFib5 ? vgaPadCommand.ActivateFib5 : vgaPadCommand.ActivateFib2;
-		    return vgaBridge.Send(VgaBridgeEndpoint, cmd, reason);
-		}
-
-		private void EnsureVgaFibDefault()
-		{
-		    if (!SendToVgaBridge)
-		        return;
-		    if (vgaFibInitialized)
-		        return;
-		    if (TrySendVgaFib(false, "DDPlotReader default Fib2"))
-		    {
-		        lastVgaFibWasFive = false;
-		        vgaFibInitialized = true;
-		    }
-		}
-
-		private void UpdateVgaFibFromSignal(int currSign)
-		{
-		    if (!SendToVgaBridge)
-		        return;
-
-		    EnsureVgaFibDefault();
-
-		    bool wantFib5 = currSign != 0;
-		    if (vgaFibInitialized && lastVgaFibWasFive == wantFib5)
-		        return;
-
-		    string reason = wantFib5
-		        ? $"DDPlotReader signal {currSign:+#;-#;0}"
-		        : "DDPlotReader signal 0";
-
-		    if (TrySendVgaFib(wantFib5, reason))
-		    {
-		        lastVgaFibWasFive = wantFib5;
-		        vgaFibInitialized = true;
-		    }
-		}
-		
 		private static Type ResolveTypeAnyAssembly(string nameOrQualified)
 		{
 		    if (string.IsNullOrWhiteSpace(nameOrQualified))
@@ -3409,15 +3333,12 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 			
 			try
 			{
-			    bool needsRealtimeSignals = State == State.Realtime && (SendToTickHunter || SendToDDATM || SendToVgaBridge);
+			    bool needsRealtimeSignals = State == State.Realtime && (SendToTickHunter || SendToDDATM);
 			    if (needsRealtimeSignals)
 			    {
 			        bool   isFinite = !double.IsNaN(candidate) && !double.IsInfinity(candidate);
 			        double curr     = isFinite ? candidate : 0.0;
 			        int    currSign = ApproxPositive(curr) ? +1 : (ApproxNegative(curr) ? -1 : 0);
-
-			        if (SendToVgaBridge)
-			            UpdateVgaFibFromSignal(currSign);
 
 			        if (SendToTickHunter || SendToDDATM)
 			        {
@@ -3526,19 +3447,19 @@ namespace NinjaTrader.NinjaScript.Indicators
 	public partial class Indicator : NinjaTrader.Gui.NinjaScript.IndicatorRenderBase
 	{
 		private DimDim.DDPlotReader[] cacheDDPlotReader;
-		public DimDim.DDPlotReader DDPlotReader(bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool sendToVgaBridge, string vgaBridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
+		public DimDim.DDPlotReader DDPlotReader(bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
 		{
-			return DDPlotReader(Input, debugMode, sendToTickHunter, bridgeEndpoint, sendToVgaBridge, vgaBridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
+			return DDPlotReader(Input, debugMode, sendToTickHunter, bridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
 		}
 
-		public DimDim.DDPlotReader DDPlotReader(ISeries<double> input, bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool sendToVgaBridge, string vgaBridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
+		public DimDim.DDPlotReader DDPlotReader(ISeries<double> input, bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
 		{
 			if (cacheDDPlotReader != null)
 				for (int idx = 0; idx < cacheDDPlotReader.Length; idx++)
-					if (cacheDDPlotReader[idx] != null && cacheDDPlotReader[idx].DebugMode == debugMode && cacheDDPlotReader[idx].SendToTickHunter == sendToTickHunter && cacheDDPlotReader[idx].BridgeEndpoint == bridgeEndpoint && cacheDDPlotReader[idx].SendToVgaBridge == sendToVgaBridge && cacheDDPlotReader[idx].VgaBridgeEndpoint == vgaBridgeEndpoint && cacheDDPlotReader[idx].FireOncePerBar == fireOncePerBar && cacheDDPlotReader[idx].MinBarsBetweenTriggers == minBarsBetweenTriggers && cacheDDPlotReader[idx].ElectrifierWhenInTrade == electrifierWhenInTrade && cacheDDPlotReader[idx].ElectrifierUpdateMs == electrifierUpdateMs && cacheDDPlotReader[idx].PendingOrderTimeoutBars == pendingOrderTimeoutBars && cacheDDPlotReader[idx].SendToDDATM == sendToDDATM && cacheDDPlotReader[idx].DDATMEndpoint == dDATMEndpoint && cacheDDPlotReader[idx].UseDDATMFlatCheck == useDDATMFlatCheck && cacheDDPlotReader[idx].SendToDDTP == sendToDDTP && cacheDDPlotReader[idx].DDTPEndpoint == dDTPEndpoint && cacheDDPlotReader[idx].TLX == tLX && cacheDDPlotReader[idx].TLY == tLY && cacheDDPlotReader[idx].WidthPx == widthPx && cacheDDPlotReader[idx].RedrawModeStr == redrawModeStr && cacheDDPlotReader[idx].SendEnabledDefault == sendEnabledDefault && cacheDDPlotReader[idx].EqualsInput(input))
+					if (cacheDDPlotReader[idx] != null && cacheDDPlotReader[idx].DebugMode == debugMode && cacheDDPlotReader[idx].SendToTickHunter == sendToTickHunter && cacheDDPlotReader[idx].BridgeEndpoint == bridgeEndpoint && cacheDDPlotReader[idx].FireOncePerBar == fireOncePerBar && cacheDDPlotReader[idx].MinBarsBetweenTriggers == minBarsBetweenTriggers && cacheDDPlotReader[idx].ElectrifierWhenInTrade == electrifierWhenInTrade && cacheDDPlotReader[idx].ElectrifierUpdateMs == electrifierUpdateMs && cacheDDPlotReader[idx].PendingOrderTimeoutBars == pendingOrderTimeoutBars && cacheDDPlotReader[idx].SendToDDATM == sendToDDATM && cacheDDPlotReader[idx].DDATMEndpoint == dDATMEndpoint && cacheDDPlotReader[idx].UseDDATMFlatCheck == useDDATMFlatCheck && cacheDDPlotReader[idx].SendToDDTP == sendToDDTP && cacheDDPlotReader[idx].DDTPEndpoint == dDTPEndpoint && cacheDDPlotReader[idx].TLX == tLX && cacheDDPlotReader[idx].TLY == tLY && cacheDDPlotReader[idx].WidthPx == widthPx && cacheDDPlotReader[idx].RedrawModeStr == redrawModeStr && cacheDDPlotReader[idx].SendEnabledDefault == sendEnabledDefault && cacheDDPlotReader[idx].EqualsInput(input))
 						return cacheDDPlotReader[idx];
-			return CacheIndicator<DimDim.DDPlotReader>(new DimDim.DDPlotReader(){ DebugMode = debugMode, SendToTickHunter = sendToTickHunter, BridgeEndpoint = bridgeEndpoint, SendToVgaBridge = sendToVgaBridge, VgaBridgeEndpoint = vgaBridgeEndpoint, FireOncePerBar = fireOncePerBar, MinBarsBetweenTriggers = minBarsBetweenTriggers, ElectrifierWhenInTrade = electrifierWhenInTrade, ElectrifierUpdateMs = electrifierUpdateMs, PendingOrderTimeoutBars = pendingOrderTimeoutBars, SendToDDATM = sendToDDATM, DDATMEndpoint = dDATMEndpoint, UseDDATMFlatCheck = useDDATMFlatCheck, SendToDDTP = sendToDDTP, DDTPEndpoint = dDTPEndpoint, TLX = tLX, TLY = tLY, WidthPx = widthPx, RedrawModeStr = redrawModeStr, SendEnabledDefault = sendEnabledDefault }, input, ref cacheDDPlotReader);
-		}
+			return CacheIndicator<DimDim.DDPlotReader>(new DimDim.DDPlotReader(){ DebugMode = debugMode, SendToTickHunter = sendToTickHunter, BridgeEndpoint = bridgeEndpoint, FireOncePerBar = fireOncePerBar, MinBarsBetweenTriggers = minBarsBetweenTriggers, ElectrifierWhenInTrade = electrifierWhenInTrade, ElectrifierUpdateMs = electrifierUpdateMs, PendingOrderTimeoutBars = pendingOrderTimeoutBars, SendToDDATM = sendToDDATM, DDATMEndpoint = dDATMEndpoint, UseDDATMFlatCheck = useDDATMFlatCheck, SendToDDTP = sendToDDTP, DDTPEndpoint = dDTPEndpoint, TLX = tLX, TLY = tLY, WidthPx = widthPx, RedrawModeStr = redrawModeStr, SendEnabledDefault = sendEnabledDefault }, input, ref cacheDDPlotReader);
+			}
 	}
 }
 
@@ -3546,14 +3467,14 @@ namespace NinjaTrader.NinjaScript.MarketAnalyzerColumns
 {
 	public partial class MarketAnalyzerColumn : MarketAnalyzerColumnBase
 	{
-		public Indicators.DimDim.DDPlotReader DDPlotReader(bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool sendToVgaBridge, string vgaBridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
+		public Indicators.DimDim.DDPlotReader DDPlotReader(bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
 		{
-			return indicator.DDPlotReader(Input, debugMode, sendToTickHunter, bridgeEndpoint, sendToVgaBridge, vgaBridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
+			return indicator.DDPlotReader(Input, debugMode, sendToTickHunter, bridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
 		}
 
-		public Indicators.DimDim.DDPlotReader DDPlotReader(ISeries<double> input , bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool sendToVgaBridge, string vgaBridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
+		public Indicators.DimDim.DDPlotReader DDPlotReader(ISeries<double> input , bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
 		{
-			return indicator.DDPlotReader(input, debugMode, sendToTickHunter, bridgeEndpoint, sendToVgaBridge, vgaBridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
+			return indicator.DDPlotReader(input, debugMode, sendToTickHunter, bridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
 		}
 	}
 }
@@ -3562,14 +3483,14 @@ namespace NinjaTrader.NinjaScript.Strategies
 {
 	public partial class Strategy : NinjaTrader.Gui.NinjaScript.StrategyRenderBase
 	{
-		public Indicators.DimDim.DDPlotReader DDPlotReader(bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool sendToVgaBridge, string vgaBridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
+		public Indicators.DimDim.DDPlotReader DDPlotReader(bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
 		{
-			return indicator.DDPlotReader(Input, debugMode, sendToTickHunter, bridgeEndpoint, sendToVgaBridge, vgaBridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
+			return indicator.DDPlotReader(Input, debugMode, sendToTickHunter, bridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
 		}
 
-		public Indicators.DimDim.DDPlotReader DDPlotReader(ISeries<double> input , bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool sendToVgaBridge, string vgaBridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
+		public Indicators.DimDim.DDPlotReader DDPlotReader(ISeries<double> input , bool debugMode, bool sendToTickHunter, string bridgeEndpoint, bool fireOncePerBar, int minBarsBetweenTriggers, bool electrifierWhenInTrade, int electrifierUpdateMs, int pendingOrderTimeoutBars, bool sendToDDATM, string dDATMEndpoint, bool useDDATMFlatCheck, bool sendToDDTP, string dDTPEndpoint, int tLX, int tLY, int widthPx, string redrawModeStr, bool sendEnabledDefault)
 		{
-			return indicator.DDPlotReader(input, debugMode, sendToTickHunter, bridgeEndpoint, sendToVgaBridge, vgaBridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
+			return indicator.DDPlotReader(input, debugMode, sendToTickHunter, bridgeEndpoint, fireOncePerBar, minBarsBetweenTriggers, electrifierWhenInTrade, electrifierUpdateMs, pendingOrderTimeoutBars, sendToDDATM, dDATMEndpoint, useDDATMFlatCheck, sendToDDTP, dDTPEndpoint, tLX, tLY, widthPx, redrawModeStr, sendEnabledDefault);
 		}
 	}
 }
