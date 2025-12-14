@@ -17,8 +17,6 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
 
-
-
 #region Using declarations
 using System;
 using System.ComponentModel;
@@ -282,7 +280,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		private RectangleF refreshRect;                // clickable area for manual refresh
 		private bool hoverRefresh = false;
 
-				// --- HelloWin-style reliability state ---
+				// --- Reliability state ---
 		private double lastStableValue = double.NaN;   // last accepted, post-filters
 		private double lastRawValue    = double.NaN;   // last raw read (pre-filters)
 		private int    lastAcceptedIdx = -1;           // abs index we accepted
@@ -1485,7 +1483,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 
 
 
-		// Try reading using our CurrentBar offsets (Predator-style) with a validator:
+		// Try reading using our CurrentBar offsets with a validator:
 		// If the source already wrote on the current bar, do NOT surface previous closed.
 		// If it hasn't, return 0.0 (no carry) instead of the previous closed value.
 		private bool TryCurrentBarClosedRead(IndicatorBase src, Series<double> s, out int absIndex, out double val)
@@ -1670,7 +1668,7 @@ namespace NinjaTrader.NinjaScript.Indicators.DimDim
 		    seriesCount = s.Count;
 		    if (seriesCount <= 0) { note = "empty series"; return double.NaN; }
 			
-			// 1) Closed-first when the bar is fresh (HelloWin UX), then upgrade to live if/when verified
+			// 1) Closed-first when the bar is fresh, then upgrade to live if/when verified
 			bool isFreshBar = IsFirstTickOfBar; // or your own fresh-bar flag
 			int liveIdx     = s.Count - 1;
 			
@@ -3498,4 +3496,3 @@ namespace NinjaTrader.NinjaScript.Strategies
 }
 
 #endregion
-

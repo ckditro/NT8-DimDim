@@ -1819,5 +1819,3 @@ namespace NinjaTrader.NinjaScript.Strategies
 
 
 
-
-
