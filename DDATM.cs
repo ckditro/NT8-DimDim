@@ -863,7 +863,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 		                eventType,
 		                details
 		            };
-		            NinjaTrader.NinjaScript.Indicators.SplunkLoggerIndicator.PrintToSplunkCsv(logFields);
+		            // NinjaTrader.NinjaScript.Indicators.SplunkLoggerIndicator.PrintToSplunkCsv(logFields);
 		        }
 		        catch (Exception ex)
 		        {
@@ -1772,6 +1772,7 @@ namespace NinjaTrader.NinjaScript.Strategies
 
     }
 }
+
 
 
 
