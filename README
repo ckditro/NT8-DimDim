@@ -2,7 +2,7 @@ Repo for NinjaTrader8 order tools
 
 Requires NT8.1 major release.
 
-NOTE: Added a patched TickHunter to simplify without the .diff file but this get's updated regularly, so ideally download the lastest from the TradeLikeAZombie Discord and use the lines in the .diff file instead.
+NOTE: Added a patched TickHunter to simplify the process without the .diff file but this get's updated regularly, so ideally download the lastest from the TradeLikeAZombie Discord @ https://discord.gg/eVcPStRR and use the lines in the .diff file instead.
 
 DDPlotReader - read any indicator on chart and send to trade managers such as TickHunter, Alighten's TradePanel or DDATM
 DDObjectBreak - converts objects on chart to plot signals
