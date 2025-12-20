@@ -2,7 +2,7 @@ Repo for NinjaTrader8 order tools
 
 Requires NT8.1 major release.
 
-NOTE: Added a patched TickHunter to simplify the process without the .diff file but this get's updated regularly, so ideally download the lastest from the TradeLikeAZombie Discord @ https://discord.gg/eVcPStRR and use the lines in the .diff file instead.
+NOTE: Added a patched TickHunter to simplify the process without the .diff file but this get's updated regularly, so ideally download the lastest from the TradeLikeAZombie Discord @ https://discord.gg/HUt7dQrBYc and use the lines in the .diff file instead.
 
 DDPlotReader - read any indicator on chart and send to trade managers such as TickHunter, Alighten's TradePanel or DDATM
 DDObjectBreak - converts objects on chart to plot signals
@@ -43,7 +43,7 @@ For DDATM, you will need to load the DDATM strategy and enable - ATM button the 
 
 For Alighten's Trade panel, you will need to load the ABPBridge indicator on the same chart as the panel. - ABP button on the Plot Reader is used for that mode.
 
-For TickHunter order management tool, join TradeLikeAZombie discord https://discord.gg/eVcPStRR - TH button on the Plot Reader is used for that mode.
+For TickHunter order management tool, join TradeLikeAZombie discord https://discord.gg/HUt7dQrBYc - TH button on the Plot Reader is used for that mode.
 
 NOTE: If you add the TickHunterBridge, you will need to patch the latest Tickhunter with the diff included - either use WinMerge or just add the code manually from the patch.
 
