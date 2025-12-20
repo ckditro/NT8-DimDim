@@ -37,21 +37,21 @@ Add your trade panel (TickHunter + TickHunterBridge, or AlightenButtonPanelV0001
 Configure the endpoints so DDPlotReader knows which panel instance to talk to.
 Enable SEND in DDPlotReader, pick the destination, and watch the signals execute automatically.
 
-For more information on how to setup individual components visit: https://www.youtube.com/@DimDium
+For more information on how to setup individual components @ https://www.youtube.com/@DimDium
 
 For DDATM, you will need to load the DDATM strategy and enable - ATM button the Plot Reader is used for that mode.
 
 For Alighten's Trade panel, you will need to load the ABPBridge indicator on the same chart as the panel. - ABP button on the Plot Reader is used for that mode.
 
-For TickHunter order management tool, join TradeLikeAZombie discord https://discord.gg/HUt7dQrBYc - TH button on the Plot Reader is used for that mode.
+For TickHunter order management tool, join TradeLikeAZombie Discord @ https://discord.gg/HUt7dQrBYc - TH button on the Plot Reader is used for that mode. They also have a X account @ https://x.com/tradezombies
 
 NOTE: If you add the TickHunterBridge, you will need to patch the latest Tickhunter with the diff included - either use WinMerge or just add the code manually from the patch.
 
 The TickHunter version this was ran against was 1.504 as of time of this writting.
 
-For Alighten's order management panel, join TO Legacy Group discord https://discord.gg/3ZEaf6Sf
+For Alighten's order management panel, join TO Legacy Group discord @ https://discord.gg/3ZEaf6Sf
 
-For PropTraderz signals, visit https://www.proptraderz.com/ / https://discord.gg/vWVyp5hg
+For PropTraderz signals, visit https://www.proptraderz.com/ or https://discord.gg/vWVyp5hg
 
 If you want to contribute to the code, suggestions or any requests against the code, contact me or Alighten on Discord to discuss further
 
