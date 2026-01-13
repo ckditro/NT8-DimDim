@@ -1,5 +1,9 @@
 Repo for NinjaTrader8 order tools
 
+Demos:
+
+Youtube: https://www.youtube.com/@DimDium
+
 Requires NT8.1 major release.
 
 NOTE: Added a patched TickHunter to simplify the process without the .diff file but this get's updated regularly, so ideally download the lastest from the TradeLikeAZombie Discord @ https://discord.gg/HUt7dQrBYc and use the lines in the .diff file instead.
@@ -55,12 +59,9 @@ For PropTraderz signals, visit https://www.proptraderz.com/ or https://discord.g
 
 If you want to contribute to the code, suggestions or any requests against the code, contact me or Alighten on Discord to discuss further
 
-Dimdim / dimdim_32135
-
-Youtube: https://www.youtube.com/@DimDium
-
-
 If you use or fork this, credit is appreciated.
 Do not resell as a paid indicator, system or strategy.
 
 Code is also for educational purposes. Not trading advice, no specific strategies included - use at your own risk.
+
+Dimdim / dimdim_32135
